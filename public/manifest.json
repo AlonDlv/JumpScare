@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "JumpsCare",
+  "version": "1.0",
+  "description": "Detects jumpscares",
+  "action": {
+    "default_popup": "index.html"
+  },
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": ["*://*.netflix.com/*",
+    "http://*/*",
+    "https://*/*"
+    
+  ],
+  "icons": {
+    "32": "death.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://www.netflix.com/watch*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

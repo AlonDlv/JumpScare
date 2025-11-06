@@ -1,0 +1,17 @@
+{
+    "compilerOptions": {
+      "target": "esnext",                  
+      "lib": ["dom", "esnext"],         
+      "module": "esnext",
+      "moduleResolution": "node",
+      "jsx": "react-jsx",                  
+      "strict": true,
+      "esModuleInterop": true,
+      "skipLibCheck": true,
+      "forceConsistentCasingInFileNames": true,
+      "typeRoots": ["node_modules/@types"],
+      "types": ["chrome"]                  
+    },
+    "include": ["src/**/*"],                
+    "exclude": ["node_modules", "dist"]  
+}   
