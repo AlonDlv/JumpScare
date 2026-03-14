@@ -1,15 +1,19 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { resolve } from 'path'
+import { fileURLToPath } from 'node:url'
+
+const popupEntry = fileURLToPath(new URL('./index.html', import.meta.url))
+const backgroundEntry = fileURLToPath(new URL('./src/background.ts', import.meta.url))
+const contentEntry = fileURLToPath(new URL('./src/content.ts', import.meta.url))
 
 export default defineConfig({
   plugins: [react()],
   build: {
     rollupOptions: {
       input: {
-        popup: resolve(__dirname, 'index.html'),
-        background: resolve(__dirname, 'src/background.ts'),
-        content: resolve(__dirname, 'src/content.ts')
+        popup: popupEntry,
+        background: backgroundEntry,
+        content: contentEntry
       },
       output: {
         // For background and content, output fixed names
