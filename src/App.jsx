@@ -1,88 +1,17 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import './App.css';
 import logo from './assets/JumpsCareLogo.png';
-import jumpscareData from './jumpscares.json';
+import {
+  DEFAULT_SETTINGS,
+  MAX_TIMER,
+  MIN_TIMER,
+  loadSettings,
+  saveSettings,
+  subscribeToSettings
+} from './extension-settings';
 
-const MIN_TIMER = 3;
-const MAX_TIMER = 10;
 const DOT_SIZE = 28;
 const NETFLIX_WATCH_URL = /^https?:\/\/(?:www\.)?netflix\.com\/watch\//i;
-const MOVIE_TITLES = Object.keys(jumpscareData);
-
-function normalizeTitle(value) {
-  return value
-    .toLowerCase()
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/&/g, ' and ')
-    .replace(/[^\w\s]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function scoreTitleMatch(candidate, actual) {
-  const normalizedCandidate = normalizeTitle(candidate);
-  const normalizedActual = normalizeTitle(actual);
-
-  if (!normalizedCandidate || !normalizedActual) {
-    return -1;
-  }
-
-  if (normalizedCandidate === normalizedActual) {
-    return 1000;
-  }
-
-  if (
-    normalizedCandidate.startsWith(normalizedActual) ||
-    normalizedActual.startsWith(normalizedCandidate)
-  ) {
-    return 800 - Math.abs(normalizedCandidate.length - normalizedActual.length);
-  }
-
-  if (
-    normalizedCandidate.includes(normalizedActual) ||
-    normalizedActual.includes(normalizedCandidate)
-  ) {
-    return 600 - Math.abs(normalizedCandidate.length - normalizedActual.length);
-  }
-
-  const actualWords = normalizedActual.split(' ');
-  const candidateWords = new Set(normalizedCandidate.split(' '));
-  const sharedWords = actualWords.filter(word => candidateWords.has(word)).length;
-
-  return sharedWords >= Math.min(2, actualWords.length)
-    ? sharedWords * 25 - Math.abs(candidateWords.size - actualWords.length)
-    : -1;
-}
-
-function findBestMovieMatch(movieTitle) {
-  let bestMatch = null;
-  let bestScore = -1;
-
-  for (const candidate of MOVIE_TITLES) {
-    const score = scoreTitleMatch(candidate, movieTitle);
-    if (score > bestScore) {
-      bestScore = score;
-      bestMatch = candidate;
-    }
-  }
-
-  return bestScore >= 0 ? bestMatch : null;
-}
-
-function parseJumpscareSeconds(entry) {
-  const rawTimestamps = Array.isArray(entry?.time_stamps) ? entry.time_stamps : [];
-
-  return rawTimestamps
-    .map(timestamp => {
-      const [hours = 0, minutes = 0, seconds = 0] = timestamp
-        .split(':')
-        .map(Number);
-
-      return hours * 3600 + minutes * 60 + seconds;
-    })
-    .filter(Number.isFinite);
-}
 
 function queryActiveTab() {
   return new Promise(resolve => {
@@ -142,29 +71,33 @@ async function requestPlaybackState(tab) {
 }
 
 export default function App() {
-  const [warn, setWarn] = useState(
-    () => JSON.parse(localStorage.getItem('warn')) ?? false
-  );
-  const [mute, setMute] = useState(
-    () => JSON.parse(localStorage.getItem('mute')) ?? false
-  );
-  const [skip, setSkip] = useState(
-    () => JSON.parse(localStorage.getItem('skip')) ?? false
-  );
-  const [timer, setTimer] = useState(() => {
-    const saved = localStorage.getItem('timer');
-    return saved !== null ? Number(saved) : MIN_TIMER;
-  });
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [movieTitle, setMovieTitle] = useState(null);
-  const [currentTime, setCurrentTime] = useState(null);
-  const [jumpscares, setJumpscares] = useState([]);
+  const [secondsToNextScare, setSecondsToNextScare] = useState(null);
 
   const rangeRef = useRef(null);
   const [rangeWidth, setRangeWidth] = useState(0);
 
   useEffect(() => {
-    localStorage.setItem('timer', timer.toString());
-  }, [timer]);
+    let cancelled = false;
+
+    void loadSettings().then(loadedSettings => {
+      if (!cancelled) {
+        setSettings(loadedSettings);
+      }
+    });
+
+    const unsubscribe = subscribeToSettings(nextSettings => {
+      if (!cancelled) {
+        setSettings(nextSettings);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
 
   useLayoutEffect(() => {
     const updateWidth = () => {
@@ -190,7 +123,7 @@ export default function App() {
       }
 
       setMovieTitle(null);
-      setCurrentTime(null);
+      setSecondsToNextScare(null);
     };
 
     const syncPlaybackState = async () => {
@@ -205,11 +138,7 @@ export default function App() {
       }
 
       const response = await requestPlaybackState(activeTab);
-      if (cancelled) {
-        return;
-      }
-
-      if (!response) {
+      if (cancelled || !response) {
         return;
       }
 
@@ -217,18 +146,20 @@ export default function App() {
         typeof response.title === 'string' && response.title.trim()
           ? response.title.trim()
           : null;
-      const nextTime =
-        typeof response.currentTime === 'number' &&
-        Number.isFinite(response.currentTime)
-          ? response.currentTime
+      const nextSecondsToNextScare =
+        typeof response.secondsToNextScare === 'number' &&
+        Number.isFinite(response.secondsToNextScare)
+          ? response.secondsToNextScare
           : null;
 
       setMovieTitle(previousTitle => nextTitle ?? previousTitle);
-      setCurrentTime(previousTime => nextTime ?? previousTime);
+      setSecondsToNextScare(nextSecondsToNextScare);
     };
 
-    syncPlaybackState();
-    const intervalId = window.setInterval(syncPlaybackState, 500);
+    void syncPlaybackState();
+    const intervalId = window.setInterval(() => {
+      void syncPlaybackState();
+    }, 500);
 
     return () => {
       cancelled = true;
@@ -236,33 +167,18 @@ export default function App() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!movieTitle) {
-      setJumpscares([]);
-      return;
-    }
+  const updateSetting = (key, value) => {
+    setSettings(previousSettings => ({
+      ...previousSettings,
+      [key]: value
+    }));
 
-    const matchedTitle = findBestMovieMatch(movieTitle);
-    if (!matchedTitle) {
-      setJumpscares([]);
-      return;
-    }
-
-    setJumpscares(parseJumpscareSeconds(jumpscareData[matchedTitle]));
-  }, [movieTitle]);
+    void saveSettings({ [key]: value });
+  };
 
   const usableWidth = Math.max(rangeWidth - DOT_SIZE, 0);
-  const sliderFraction = (timer - MIN_TIMER) / (MAX_TIMER - MIN_TIMER);
+  const sliderFraction = (settings.timer - MIN_TIMER) / (MAX_TIMER - MIN_TIMER);
   const sliderLeft = usableWidth * sliderFraction + DOT_SIZE / 2;
-
-  const nextScare =
-    typeof currentTime === 'number'
-      ? jumpscares.find(timestamp => timestamp > currentTime)
-      : null;
-  const secondsToNextScare =
-    nextScare != null && typeof currentTime === 'number'
-      ? Math.ceil(nextScare - currentTime)
-      : null;
 
   return (
     <div className="container">
@@ -274,12 +190,8 @@ export default function App() {
           <input
             type="checkbox"
             id="warn"
-            checked={warn}
-            onChange={() => {
-              const nextValue = !warn;
-              setWarn(nextValue);
-              localStorage.setItem('warn', JSON.stringify(nextValue));
-            }}
+            checked={settings.warn}
+            onChange={() => updateSetting('warn', !settings.warn)}
           />
           <span className="slider" />
         </div>
@@ -291,12 +203,8 @@ export default function App() {
           <input
             type="checkbox"
             id="mute"
-            checked={mute}
-            onChange={() => {
-              const nextValue = !mute;
-              setMute(nextValue);
-              localStorage.setItem('mute', JSON.stringify(nextValue));
-            }}
+            checked={settings.mute}
+            onChange={() => updateSetting('mute', !settings.mute)}
           />
           <span className="slider" />
         </div>
@@ -308,12 +216,8 @@ export default function App() {
           <input
             type="checkbox"
             id="skip"
-            checked={skip}
-            onChange={() => {
-              const nextValue = !skip;
-              setSkip(nextValue);
-              localStorage.setItem('skip', JSON.stringify(nextValue));
-            }}
+            checked={settings.skip}
+            onChange={() => updateSetting('skip', !settings.skip)}
           />
           <span className="slider" />
         </div>
@@ -328,11 +232,11 @@ export default function App() {
             id="timer"
             min={MIN_TIMER}
             max={MAX_TIMER}
-            value={timer}
-            onChange={event => setTimer(Number(event.target.value))}
+            value={settings.timer}
+            onChange={event => updateSetting('timer', Number(event.target.value))}
           />
           <div className="range-value" style={{ left: `${sliderLeft}px` }}>
-            {timer}
+            {settings.timer}
           </div>
         </div>
       </div>
