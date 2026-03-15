@@ -2,16 +2,16 @@ export const MIN_TIMER = 3;
 export const MAX_TIMER = 10;
 
 export type ExtensionSettings = {
+  enabled: boolean;
   warn: boolean;
   mute: boolean;
-  skip: boolean;
   timer: number;
 };
 
 export const DEFAULT_SETTINGS: ExtensionSettings = {
+  enabled: true,
   warn: false,
   mute: false,
-  skip: false,
   timer: MIN_TIMER
 };
 
@@ -33,30 +33,34 @@ function normalizeTimer(value: unknown): number {
   return Math.min(MAX_TIMER, Math.max(MIN_TIMER, numericValue));
 }
 
+function normalizeEnabled(value: unknown): boolean {
+  return typeof value === "boolean" ? value : DEFAULT_SETTINGS.enabled;
+}
+
 function normalizeSettings(
   settings: Partial<ExtensionSettings> | null | undefined
 ): ExtensionSettings {
   return {
+    enabled: normalizeEnabled(settings?.enabled),
     warn: Boolean(settings?.warn),
     mute: Boolean(settings?.mute),
-    skip: Boolean(settings?.skip),
     timer: normalizeTimer(settings?.timer)
   };
 }
 
 function readLocalFallback(): ExtensionSettings {
   return normalizeSettings({
+    enabled: JSON.parse(localStorage.getItem("enabled") ?? "true"),
     warn: JSON.parse(localStorage.getItem("warn") ?? "false"),
     mute: JSON.parse(localStorage.getItem("mute") ?? "false"),
-    skip: JSON.parse(localStorage.getItem("skip") ?? "false"),
     timer: localStorage.getItem("timer")
   });
 }
 
 function writeLocalFallback(settings: ExtensionSettings): void {
+  localStorage.setItem("enabled", JSON.stringify(settings.enabled));
   localStorage.setItem("warn", JSON.stringify(settings.warn));
   localStorage.setItem("mute", JSON.stringify(settings.mute));
-  localStorage.setItem("skip", JSON.stringify(settings.skip));
   localStorage.setItem("timer", settings.timer.toString());
 }
 

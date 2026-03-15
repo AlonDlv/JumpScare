@@ -7,9 +7,9 @@ type WindowWithJumpscareFlags = Window & {
 };
 
 type ExtensionSettings = {
+  enabled: boolean;
   warn: boolean;
   mute: boolean;
-  skip: boolean;
   timer: number;
 };
 
@@ -39,20 +39,18 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
   console.log("[JumpsCare] content script loaded");
 
   const DEFAULT_SETTINGS: ExtensionSettings = {
+    enabled: true,
     warn: false,
     mute: false,
-    skip: false,
     timer: 3
   };
   const MOVIE_TITLES = Object.keys(jumpscareData);
   const BRIDGE_MESSAGE_SOURCE = "__JUMPSCARE_NETFLIX_BRIDGE__";
   const BRIDGE_SCRIPT_ID = "jumpscare-netflix-player-bridge";
-  const SKIP_BEFORE_SECONDS = 5;
-  const SKIP_AFTER_SECONDS = 3;
+  const WARNING_OVERLAY_ID = "jumpscare-warning-overlay";
   const MUTE_BEFORE_SECONDS = 2;
   const MUTE_AFTER_SECONDS = 2;
   const SEEK_BACK_RESET_THRESHOLD = 8;
-  const ACTION_LOCK_MS = 1500;
   const TITLE_SELECTORS = [
     "[data-uia='video-title']",
     "[data-uia='player-title']",
@@ -91,10 +89,11 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
   let bridgeTimeUpdatedAt = 0;
   let bridgeInjected = false;
   let activeMute: ActiveMuteState | null = null;
-  let skippedScares = new Set<number>();
   let mutedScares = new Set<number>();
   let lastAutomationTime: number | null = null;
-  let actionLockedUntil = 0;
+  let warningOverlay: HTMLDivElement | null = null;
+  let warningOverlayValue: HTMLSpanElement | null = null;
+  let scanScheduled = false;
 
   function normalizeTitle(value: string): string {
     return value
@@ -197,9 +196,12 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
     rawSettings: Partial<ExtensionSettings> | null | undefined
   ): ExtensionSettings {
     return {
+      enabled:
+        typeof rawSettings?.enabled === "boolean"
+          ? rawSettings.enabled
+          : DEFAULT_SETTINGS.enabled,
       warn: Boolean(rawSettings?.warn),
       mute: Boolean(rawSettings?.mute),
-      skip: Boolean(rawSettings?.skip),
       timer: Number.isFinite(Number(rawSettings?.timer))
         ? Number(rawSettings?.timer)
         : DEFAULT_SETTINGS.timer
@@ -226,9 +228,9 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
       }
 
       if (
+        !("enabled" in changes) &&
         !("warn" in changes) &&
         !("mute" in changes) &&
-        !("skip" in changes) &&
         !("timer" in changes)
       ) {
         return;
@@ -245,9 +247,22 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
   }
 
   function sendRuntimeMessage(message: Record<string, unknown>): void {
-    chrome.runtime.sendMessage(message, () => {
-      void chrome.runtime.lastError;
-    });
+    try {
+      chrome.runtime.sendMessage(message, () => {
+        void chrome.runtime.lastError;
+      });
+    } catch {
+      // The page can keep a stale content script alive after the extension reloads.
+    }
+  }
+
+  function isManagedOverlayNode(node: Node): boolean {
+    return (
+      node instanceof HTMLElement &&
+      (node.id === WARNING_OVERLAY_ID ||
+        node.id === BRIDGE_SCRIPT_ID ||
+        node.closest?.(`#${WARNING_OVERLAY_ID}`) instanceof HTMLElement)
+    );
   }
 
   function isNetflixWatchPage(): boolean {
@@ -334,24 +349,29 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
   }
 
   function getCurrentTime(): number | null {
-    if (hasFreshBridgeTime()) {
-      return bridgeTimeSeconds;
-    }
-
     if (trackedVideo && Number.isFinite(trackedVideo.currentTime)) {
       return trackedVideo.currentTime;
+    }
+
+    if (hasFreshBridgeTime()) {
+      return bridgeTimeSeconds;
     }
 
     return getVisiblePlayerTime();
   }
 
-  function getSecondsToNextScare(currentTime: number | null): number | null {
+  function getTimeUntilNextScare(currentTime: number | null): number | null {
     if (typeof currentTime !== "number" || !Number.isFinite(currentTime)) {
       return null;
     }
 
     const nextScare = jumpscareTimes.find(scareTime => scareTime > currentTime);
-    return nextScare != null ? Math.ceil(nextScare - currentTime) : null;
+    return nextScare != null ? nextScare - currentTime : null;
+  }
+
+  function getSecondsToNextScare(currentTime: number | null): number | null {
+    const timeUntilNextScare = getTimeUntilNextScare(currentTime);
+    return timeUntilNextScare != null ? Math.ceil(timeUntilNextScare) : null;
   }
 
   function createPlaybackState(): PlaybackState {
@@ -375,6 +395,129 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
     });
   }
 
+  function getWarningOverlayHost(): HTMLElement {
+    if (document.fullscreenElement instanceof HTMLElement) {
+      return document.fullscreenElement;
+    }
+
+    return (document.body || document.documentElement) as HTMLElement;
+  }
+
+  function ensureWarningOverlay(): HTMLDivElement {
+    const host = getWarningOverlayHost();
+    const existingOverlay =
+      warningOverlay?.isConnected
+        ? warningOverlay
+        : document.getElementById(WARNING_OVERLAY_ID);
+    const existingValue =
+      warningOverlayValue?.isConnected
+        ? warningOverlayValue
+        : existingOverlay?.querySelector("[data-jumpscare-countdown-value]");
+
+    if (
+      existingOverlay instanceof HTMLDivElement &&
+      existingValue instanceof HTMLSpanElement
+    ) {
+      if (existingOverlay.parentElement !== host) {
+        host.appendChild(existingOverlay);
+      }
+      warningOverlay = existingOverlay;
+      warningOverlayValue = existingValue;
+      return existingOverlay;
+    }
+
+    const overlay = document.createElement("div");
+    overlay.id = WARNING_OVERLAY_ID;
+    Object.assign(overlay.style, {
+      position: "fixed",
+      top: "24px",
+      right: "24px",
+      transform: "translateY(-12px)",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "flex-start",
+      gap: "4px",
+      minWidth: "148px",
+      padding: "12px 16px",
+      borderRadius: "16px",
+      border: "1px solid rgba(220, 47, 47, 0.72)",
+      background:
+        "linear-gradient(160deg, rgba(24, 24, 24, 0.96), rgba(10, 10, 10, 0.92))",
+      boxShadow: "0 14px 32px rgba(0, 0, 0, 0.4)",
+      backdropFilter: "blur(8px)",
+      color: "#ffffff",
+      fontFamily: "system-ui, sans-serif",
+      pointerEvents: "none",
+      zIndex: "2147483647",
+      opacity: "0",
+      transition: "opacity 160ms ease, transform 160ms ease"
+    });
+
+    const label = document.createElement("span");
+    label.textContent = "JUMP SCARE";
+    Object.assign(label.style, {
+      fontSize: "10px",
+      fontWeight: "700",
+      letterSpacing: "0.22em",
+      textTransform: "uppercase",
+      color: "rgba(255, 255, 255, 0.72)"
+    });
+
+    const value = document.createElement("span");
+    value.dataset.jumpscareCountdownValue = "true";
+    value.textContent = "0s";
+    Object.assign(value.style, {
+      fontSize: "32px",
+      fontWeight: "800",
+      lineHeight: "1",
+      color: "#ff7575",
+      textShadow: "0 0 18px rgba(220, 47, 47, 0.28)"
+    });
+
+    overlay.append(label, value);
+    host.appendChild(overlay);
+
+    warningOverlay = overlay;
+    warningOverlayValue = value;
+    return overlay;
+  }
+
+  function removeWarningOverlay(): void {
+    warningOverlay?.remove();
+    warningOverlay = null;
+    warningOverlayValue = null;
+  }
+
+  function updateWarningOverlay(currentTime: number | null): void {
+    if (!settings.warn) {
+      removeWarningOverlay();
+      return;
+    }
+
+    const timeUntilNextScare = getTimeUntilNextScare(currentTime);
+
+    if (
+      !settings.enabled ||
+      timeUntilNextScare === null ||
+      timeUntilNextScare > settings.timer
+    ) {
+      removeWarningOverlay();
+      return;
+    }
+
+    const overlay = ensureWarningOverlay();
+    if (!warningOverlayValue) {
+      return;
+    }
+
+    const nextOverlayText = `${Math.ceil(timeUntilNextScare)}s`;
+    if (warningOverlayValue.textContent !== nextOverlayText) {
+      warningOverlayValue.textContent = nextOverlayText;
+    }
+    overlay.style.opacity = "1";
+    overlay.style.transform = "translateY(0)";
+  }
+
   function clearAutoMute(): void {
     if (!activeMute) {
       return;
@@ -391,10 +534,9 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
 
   function resetAutomationState(): void {
     clearAutoMute();
-    skippedScares = new Set();
     mutedScares = new Set();
     lastAutomationTime = null;
-    actionLockedUntil = 0;
+    removeWarningOverlay();
   }
 
   function syncMatchedMovie(): void {
@@ -410,47 +552,12 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
   }
 
   function resetTriggeredScaresForSeek(currentTime: number): void {
-    skippedScares = new Set(
-      [...skippedScares].filter(
-        scareTime => scareTime < currentTime - SKIP_BEFORE_SECONDS
-      )
-    );
     mutedScares = new Set(
       [...mutedScares].filter(
         scareTime => scareTime < currentTime - MUTE_BEFORE_SECONDS
       )
     );
     clearAutoMute();
-  }
-
-  function seekVideoTo(targetTime: number): void {
-    if (!trackedVideo) {
-      return;
-    }
-
-    try {
-      if (typeof trackedVideo.fastSeek === "function") {
-        trackedVideo.fastSeek(targetTime);
-      }
-      trackedVideo.currentTime = targetTime;
-    } catch {
-      // Ignore seek failures and let the next scan retry from live state.
-    }
-  }
-
-  function triggerSkip(scareTime: number): void {
-    const targetTime = scareTime + SKIP_AFTER_SECONDS;
-
-    skippedScares.add(scareTime);
-    mutedScares.add(scareTime);
-    clearAutoMute();
-    actionLockedUntil = Date.now() + ACTION_LOCK_MS;
-    bridgeTimeSeconds = targetTime;
-    bridgeTimeUpdatedAt = Date.now();
-    lastAutomationTime = targetTime;
-
-    seekVideoTo(targetTime);
-    publishCurrentTime(true);
   }
 
   function triggerMute(scareTime: number): void {
@@ -471,8 +578,15 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
   }
 
   function evaluateAutomation(currentTime: number | null): void {
+    updateWarningOverlay(currentTime);
+
+    if (!settings.enabled) {
+      clearAutoMute();
+      return;
+    }
+
     if (typeof currentTime !== "number" || !Number.isFinite(currentTime)) {
-      if (!settings.warn || !settings.mute) {
+      if (!settings.mute) {
         clearAutoMute();
       }
       return;
@@ -486,7 +600,7 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
     }
     lastAutomationTime = currentTime;
 
-    if (!settings.warn || jumpscareTimes.length === 0) {
+    if (jumpscareTimes.length === 0) {
       clearAutoMute();
       return;
     }
@@ -501,22 +615,8 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
       }
     }
 
-    if (trackedVideo?.paused || Date.now() < actionLockedUntil) {
+    if (trackedVideo?.paused) {
       return;
-    }
-
-    if (settings.skip) {
-      const scareToSkip = jumpscareTimes.find(
-        scareTime =>
-          !skippedScares.has(scareTime) &&
-          currentTime >= scareTime - SKIP_BEFORE_SECONDS &&
-          currentTime < scareTime + SKIP_AFTER_SECONDS
-      );
-
-      if (scareToSkip !== undefined) {
-        triggerSkip(scareToSkip);
-        return;
-      }
     }
 
     if (settings.mute) {
@@ -561,11 +661,14 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
   function publishCurrentTime(force = false): void {
     const nextTime = getCurrentTime();
     if (nextTime === null) {
-      if (force || lastPublishedSecond !== -1) {
+      const shouldPublishState = force || lastPublishedSecond !== -1;
+      if (shouldPublishState) {
         lastPublishedSecond = -1;
-        publishState();
       }
       evaluateAutomation(nextTime);
+      if (shouldPublishState) {
+        publishState();
+      }
       return;
     }
 
@@ -576,12 +679,12 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
     }
 
     lastPublishedSecond = nextSecond;
+    evaluateAutomation(nextTime);
     sendRuntimeMessage({
       action: "timeUpdate",
       currentTime: nextTime
     });
     publishState();
-    evaluateAutomation(nextTime);
   }
 
   function handleTrackedVideoEvent(): void {
@@ -678,6 +781,24 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
     injectPlayerBridge();
   }
 
+  function scheduleScan(force = false): void {
+    if (force) {
+      scanScheduled = false;
+      scanPage(true);
+      return;
+    }
+
+    if (scanScheduled) {
+      return;
+    }
+
+    scanScheduled = true;
+    window.requestAnimationFrame(() => {
+      scanScheduled = false;
+      scanPage();
+    });
+  }
+
   window.addEventListener("message", (event: MessageEvent) => {
     if (event.source !== window) {
       return;
@@ -726,8 +847,16 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
     }
   );
 
-  const observer = new MutationObserver(() => {
-    scanPage();
+  const observer = new MutationObserver(records => {
+    const onlyManagedNodesChanged = records.every(record =>
+      [...record.addedNodes, ...record.removedNodes].every(isManagedOverlayNode)
+    );
+
+    if (onlyManagedNodesChanged) {
+      return;
+    }
+
+    scheduleScan();
   });
 
   function startObserver(): void {
@@ -745,7 +874,9 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
   const unsubscribeFromSettings = subscribeToSettings(nextSettings => {
     settings = nextSettings;
 
-    if (!settings.warn || !settings.mute) {
+    if (!settings.enabled) {
+      resetAutomationState();
+    } else if (!settings.mute) {
       clearAutoMute();
     }
 
@@ -757,13 +888,13 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
       "DOMContentLoaded",
       () => {
         startObserver();
-        scanPage(true);
+        scheduleScan(true);
       },
       { once: true }
     );
   } else {
     startObserver();
-    scanPage(true);
+    scheduleScan(true);
   }
 
   window.addEventListener("popstate", () => {
@@ -772,10 +903,11 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
 
   window.addEventListener("unload", () => {
     clearAutoMute();
+    removeWarningOverlay();
     unsubscribeFromSettings();
   });
 
   window.setInterval(() => {
-    scanPage();
+    scheduleScan();
   }, 1000);
 }

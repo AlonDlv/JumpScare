@@ -70,6 +70,10 @@ body {
   letter-spacing: 1px;
 }
 
+.control.is-disabled label {
+  opacity: 0.55;
+}
+
 /* Toggle switches */
 .toggle {
   position: relative;
@@ -84,6 +88,9 @@ body {
   opacity: 0;
   cursor: pointer;
   z-index: 2;
+}
+.toggle input:disabled {
+  cursor: not-allowed;
 }
 .toggle .slider {
   position: absolute;
@@ -109,6 +116,9 @@ body {
 }
 .toggle input:checked + .slider::after {
   transform: translateX(24px);
+}
+.toggle input:disabled + .slider {
+  opacity: 0.45;
 }
 
 /* slider track */
@@ -138,6 +148,18 @@ body {
   background: transparent;
   cursor: pointer;
   outline: none;
+}
+
+.range-container.is-disabled {
+  opacity: 0.55;
+}
+
+.timer-control.is-disabled label {
+  opacity: 0.55;
+}
+
+.range-container input[type="range"]:disabled {
+  cursor: not-allowed;
 }
 
 .range-container input[type="range"]::-webkit-slider-runnable-track {
@@ -182,4 +204,9 @@ body {
   justify-content: center;
   pointer-events: none;
   z-index: 2;
+}
+
+.range-value.is-disabled {
+  background: #6a6a6a;
+  border-color: #383838;
 }

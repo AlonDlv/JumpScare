@@ -179,53 +179,57 @@ export default function App() {
   const usableWidth = Math.max(rangeWidth - DOT_SIZE, 0);
   const sliderFraction = (settings.timer - MIN_TIMER) / (MAX_TIMER - MIN_TIMER);
   const sliderLeft = usableWidth * sliderFraction + DOT_SIZE / 2;
+  const areFeatureTogglesDisabled = !settings.enabled;
+  const isTimerDisabled = !settings.enabled;
 
   return (
     <div className="container">
       <img src={logo} alt="JumpScare Logo" className="logo" />
 
       <div className="control">
-        <label htmlFor="warn">WARN</label>
+        <label htmlFor="extension-toggle">EXTENSION</label>
         <div className="toggle">
           <input
             type="checkbox"
-            id="warn"
-            checked={settings.warn}
-            onChange={() => updateSetting('warn', !settings.warn)}
+            id="extension-toggle"
+            checked={settings.enabled}
+            onChange={() => updateSetting('enabled', !settings.enabled)}
           />
           <span className="slider" />
         </div>
       </div>
 
-      <div className="control">
+      <div className={`control ${areFeatureTogglesDisabled ? 'is-disabled' : ''}`}>
         <label htmlFor="mute">MUTE</label>
         <div className="toggle">
           <input
             type="checkbox"
             id="mute"
             checked={settings.mute}
+            disabled={areFeatureTogglesDisabled}
             onChange={() => updateSetting('mute', !settings.mute)}
           />
           <span className="slider" />
         </div>
       </div>
 
-      <div className="control">
-        <label htmlFor="skip">SKIP</label>
+      <div className={`control ${areFeatureTogglesDisabled ? 'is-disabled' : ''}`}>
+        <label htmlFor="warn">WARN</label>
         <div className="toggle">
           <input
             type="checkbox"
-            id="skip"
-            checked={settings.skip}
-            onChange={() => updateSetting('skip', !settings.skip)}
+            id="warn"
+            checked={settings.warn}
+            disabled={areFeatureTogglesDisabled}
+            onChange={() => updateSetting('warn', !settings.warn)}
           />
           <span className="slider" />
         </div>
       </div>
 
-      <div className="control">
+      <div className={`control timer-control ${isTimerDisabled ? 'is-disabled' : ''}`}>
         <label htmlFor="timer">TIMER</label>
-        <div className="range-container">
+        <div className={`range-container ${isTimerDisabled ? 'is-disabled' : ''}`}>
           <input
             ref={rangeRef}
             type="range"
@@ -233,9 +237,13 @@ export default function App() {
             min={MIN_TIMER}
             max={MAX_TIMER}
             value={settings.timer}
+            disabled={isTimerDisabled}
             onChange={event => updateSetting('timer', Number(event.target.value))}
           />
-          <div className="range-value" style={{ left: `${sliderLeft}px` }}>
+          <div
+            className={`range-value ${isTimerDisabled ? 'is-disabled' : ''}`}
+            style={{ left: `${sliderLeft}px` }}
+          >
             {settings.timer}
           </div>
         </div>
