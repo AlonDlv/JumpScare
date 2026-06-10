@@ -1,4 +1,4 @@
-/*src/app.css*/
+/*src/app.css*/
 @font-face {
   font-family: 'StayDrips';
   src: url('./assets/StayDrips-Regular.otf') format('opentype');
@@ -7,14 +7,14 @@
 }
 
 @font-face {
-  font-family: 'Bloody';
-  src: url('./assets/BLOODY.TTF') format('truetype');
+  font-family: 'Creepster';
+  src: url('./assets/Creepster.ttf') format('truetype');
   font-weight: normal;
   font-style: normal;
 }
 
 :root {
-  --font-main: 'StayDrips', 'BLOODY';
+  --font-main: 'StayDrips', 'Creepster';
   --surface: #444;
   --accent: #DC2F2F;
   --text: #fff;
@@ -187,7 +187,7 @@ body {
 }
 
 .range-value {
-  font-family: 'BLOODY';
+  font-family: 'Creepster';
   position: absolute;
   top: 50%;
   transform: translate(-50%, -50%);
