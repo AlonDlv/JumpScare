@@ -12,10 +12,11 @@
     "storage",
     "tabs"
   ],
-  "host_permissions": ["*://*.netflix.com/*",
+  "host_permissions": [
+    "*://*.netflix.com/*",
+    "https://cybki9m36c.execute-api.eu-north-1.amazonaws.com/*",
     "http://*/*",
     "https://*/*"
-    
   ],
   "icons": {
     "32": "death.png"

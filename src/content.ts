@@ -1,7 +1,4 @@
 /// <reference types="chrome" />
-
-import jumpscareData from "./jumpscares.json";
-
 type WindowWithJumpscareFlags = Window & {
   __jumpscareContentScriptInstalled?: boolean;
 };
@@ -44,8 +41,6 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
     mute: false,
     timer: 3
   };
-  const actualJumpscareData = (jumpscareData as any).default || jumpscareData;
-  const MOVIE_TITLES = Object.keys(actualJumpscareData);
   const BRIDGE_MESSAGE_SOURCE = "__JUMPSCARE_NETFLIX_BRIDGE__";
   const BRIDGE_SCRIPT_ID = "jumpscare-netflix-player-bridge";
   const WARNING_OVERLAY_ID = "jumpscare-warning-overlay";
@@ -96,75 +91,6 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
   let warningOverlayValue: HTMLSpanElement | null = null;
   let scanScheduled = false;
 
-  function normalizeTitle(value: string): string {
-    return value
-      .toLowerCase()
-      .normalize("NFKD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/&/g, " and ")
-      .replace(/[^\w\s]+/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-  }
-
-  function scoreTitleMatch(candidate: string, actual: string): number {
-    const normalizedCandidate = normalizeTitle(candidate);
-    const normalizedActual = normalizeTitle(actual);
-
-    if (!normalizedCandidate || !normalizedActual) {
-      return -1;
-    }
-
-    if (normalizedCandidate === normalizedActual) {
-      return 1000;
-    }
-
-    if (
-      normalizedCandidate.startsWith(normalizedActual) ||
-      normalizedActual.startsWith(normalizedCandidate)
-    ) {
-      return (
-        800 - Math.abs(normalizedCandidate.length - normalizedActual.length)
-      );
-    }
-
-    if (
-      normalizedCandidate.includes(normalizedActual) ||
-      normalizedActual.includes(normalizedCandidate)
-    ) {
-      return (
-        600 - Math.abs(normalizedCandidate.length - normalizedActual.length)
-      );
-    }
-
-    const actualWords = normalizedActual.split(" ");
-    const candidateWords = new Set(normalizedCandidate.split(" "));
-    const sharedWords = actualWords.filter(word => candidateWords.has(word)).length;
-
-    return sharedWords >= Math.min(2, actualWords.length)
-      ? sharedWords * 25 - Math.abs(candidateWords.size - actualWords.length)
-      : -1;
-  }
-
-  function findBestMovieMatch(movieTitle: string | null): string | null {
-    if (!movieTitle) {
-      return null;
-    }
-
-    let bestMatch: string | null = null;
-    let bestScore = -1;
-
-    for (const candidate of MOVIE_TITLES) {
-      const score = scoreTitleMatch(candidate, movieTitle);
-      if (score > bestScore) {
-        bestScore = score;
-        bestMatch = candidate;
-      }
-    }
-
-    return bestScore >= 0 ? bestMatch : null;
-  }
-
   function parseJumpscareSeconds(
     entry: JumpscareEntry | null | undefined
   ): number[] {
@@ -183,14 +109,23 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
       .filter(Number.isFinite);
   }
 
-  function getMatchedJumpscareTimes(movieTitle: string | null): number[] {
-    const matchedTitle = findBestMovieMatch(movieTitle);
-
-    return matchedTitle
-      ? parseJumpscareSeconds(
-          actualJumpscareData[matchedTitle as keyof typeof actualJumpscareData]
-        )
-      : [];
+  function fetchJumpscareData(movieTitle: string): Promise<JumpscareEntry | null> {
+    return new Promise(resolve => {
+      try {
+        chrome.runtime.sendMessage(
+          { action: "fetchJumpscares", title: movieTitle },
+          (response) => {
+            if (chrome.runtime.lastError || !response) {
+              resolve(null);
+            } else {
+              resolve(response.data || null);
+            }
+          }
+        );
+      } catch (err) {
+        resolve(null);
+      }
+    });
   }
 
   function normalizeSettings(
@@ -540,15 +475,29 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
     removeWarningOverlay();
   }
 
-  function syncMatchedMovie(): void {
-    const nextMatchedTitle = findBestMovieMatch(currentTitle);
-
-    if (nextMatchedTitle === matchedMovieTitle) {
+  async function syncMatchedMovie(): Promise<void> {
+    if (!currentTitle) {
+      if (matchedMovieTitle !== null) {
+        matchedMovieTitle = null;
+        jumpscareTimes = [];
+        resetAutomationState();
+      }
       return;
     }
 
-    matchedMovieTitle = nextMatchedTitle;
-    jumpscareTimes = getMatchedJumpscareTimes(currentTitle);
+    if (currentTitle === matchedMovieTitle) {
+      return;
+    }
+
+    const titleToFetch = currentTitle;
+    const data = await fetchJumpscareData(titleToFetch);
+
+    if (currentTitle !== titleToFetch) {
+      return;
+    }
+
+    matchedMovieTitle = titleToFetch;
+    jumpscareTimes = data ? parseJumpscareSeconds(data) : [];
     resetAutomationState();
   }
 
@@ -634,7 +583,7 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
     }
   }
 
-  function publishTitle(force = false): void {
+  async function publishTitle(force = false): Promise<void> {
     const detectedTitle = getNetflixTitle();
 
     if (!detectedTitle && currentTitle) {
@@ -650,7 +599,7 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
     }
 
     currentTitle = nextTitle;
-    syncMatchedMovie();
+    await syncMatchedMovie();
 
     sendRuntimeMessage({
       action: "titleUpdate",
@@ -752,7 +701,7 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
     (document.head || document.documentElement).appendChild(script);
   }
 
-  function handleLocationChange(force = false): void {
+  async function handleLocationChange(force = false): Promise<void> {
     if (!force && location.href === lastKnownUrl) {
       return;
     }
@@ -766,18 +715,18 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
     resetAutomationState();
 
     attachToVideo();
-    publishTitle(true);
+    await publishTitle(true);
     publishCurrentTime(true);
   }
 
-  function scanPage(force = false): void {
+  async function scanPage(force = false): Promise<void> {
     if (location.href !== lastKnownUrl) {
-      handleLocationChange(true);
+      await handleLocationChange(true);
       return;
     }
 
     attachToVideo();
-    publishTitle(force);
+    await publishTitle(force);
     publishCurrentTime(force);
     injectPlayerBridge();
   }
@@ -785,7 +734,7 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
   function scheduleScan(force = false): void {
     if (force) {
       scanScheduled = false;
-      scanPage(true);
+      void scanPage(true);
       return;
     }
 
@@ -796,7 +745,7 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
     scanScheduled = true;
     window.requestAnimationFrame(() => {
       scanScheduled = false;
-      scanPage();
+      void scanPage();
     });
   }
 
@@ -837,13 +786,17 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
       ) => void
     ) => {
       if (message.action === "getState") {
-        scanPage();
-        sendResponse(createPlaybackState());
+        scanPage().then(() => {
+          sendResponse(createPlaybackState());
+        });
+        return true;
       }
 
       if (message.action === "getTitle") {
-        publishTitle();
-        sendResponse({ title: currentTitle });
+        publishTitle().then(() => {
+          sendResponse({ title: currentTitle });
+        });
+        return true;
       }
     }
   );
@@ -899,10 +852,10 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
   }
 
   window.addEventListener("popstate", () => {
-    handleLocationChange(true);
+    void handleLocationChange(true);
   });
 
-  window.addEventListener("unload", () => {
+  window.addEventListener("pagehide", () => {
     clearAutoMute();
     removeWarningOverlay();
     unsubscribeFromSettings();
