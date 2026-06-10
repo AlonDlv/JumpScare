@@ -44,7 +44,8 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
     mute: false,
     timer: 3
   };
-  const MOVIE_TITLES = Object.keys(jumpscareData);
+  const actualJumpscareData = (jumpscareData as any).default || jumpscareData;
+  const MOVIE_TITLES = Object.keys(actualJumpscareData);
   const BRIDGE_MESSAGE_SOURCE = "__JUMPSCARE_NETFLIX_BRIDGE__";
   const BRIDGE_SCRIPT_ID = "jumpscare-netflix-player-bridge";
   const WARNING_OVERLAY_ID = "jumpscare-warning-overlay";
@@ -187,7 +188,7 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
 
     return matchedTitle
       ? parseJumpscareSeconds(
-          jumpscareData[matchedTitle as keyof typeof jumpscareData]
+          actualJumpscareData[matchedTitle as keyof typeof actualJumpscareData]
         )
       : [];
   }
@@ -311,7 +312,7 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
   }
 
   function parseClockToSeconds(value: string): number | null {
-    const match = value.trim().match(/^(\d+):(\d{2})(?::(\d{2}))?$/);
+    const match = value.trim().match(/^-?(\d+):(\d{2})(?::(\d{2}))?$/);
     if (!match) {
       return null;
     }

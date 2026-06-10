@@ -251,7 +251,7 @@ export default function App() {
 
       <div className="control">
         <label>TITLE</label>
-        <span>{movieTitle || '--'}</span>
+        <span>{movieTitle || 'NONE'}</span>
       </div>
 
       <div className="control">
