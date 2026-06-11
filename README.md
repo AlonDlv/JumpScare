@@ -1,4 +1,4 @@
-# JumpScare
+# JumpsCare
 
 JumpScare is a Chrome extension for Netflix that helps users prepare for upcoming jump scares while watching horror content.
 
