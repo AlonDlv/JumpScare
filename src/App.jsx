@@ -227,6 +227,20 @@ export default function App() {
         </div>
       </div>
 
+      <div className={`control ${areFeatureTogglesDisabled ? 'is-disabled' : ''}`}>
+        <label htmlFor="blur">BLUR</label>
+        <div className="toggle">
+          <input
+            type="checkbox"
+            id="blur"
+            checked={settings.blur}
+            disabled={areFeatureTogglesDisabled}
+            onChange={() => updateSetting('blur', !settings.blur)}
+          />
+          <span className="slider" />
+        </div>
+      </div>
+
       <div className={`control timer-control ${isTimerDisabled ? 'is-disabled' : ''}`}>
         <label htmlFor="timer">TIMER</label>
         <div className={`range-container ${isTimerDisabled ? 'is-disabled' : ''}`}>

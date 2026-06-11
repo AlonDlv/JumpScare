@@ -5,6 +5,7 @@ export type ExtensionSettings = {
   enabled: boolean;
   warn: boolean;
   mute: boolean;
+  blur: boolean;
   timer: number;
 };
 
@@ -12,6 +13,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   enabled: true,
   warn: false,
   mute: false,
+  blur: false,
   timer: MIN_TIMER
 };
 
@@ -44,6 +46,7 @@ function normalizeSettings(
     enabled: normalizeEnabled(settings?.enabled),
     warn: Boolean(settings?.warn),
     mute: Boolean(settings?.mute),
+    blur: Boolean(settings?.blur),
     timer: normalizeTimer(settings?.timer)
   };
 }
@@ -53,6 +56,7 @@ function readLocalFallback(): ExtensionSettings {
     enabled: JSON.parse(localStorage.getItem("enabled") ?? "true"),
     warn: JSON.parse(localStorage.getItem("warn") ?? "false"),
     mute: JSON.parse(localStorage.getItem("mute") ?? "false"),
+    blur: JSON.parse(localStorage.getItem("blur") ?? "false"),
     timer: localStorage.getItem("timer")
   });
 }
@@ -61,6 +65,7 @@ function writeLocalFallback(settings: ExtensionSettings): void {
   localStorage.setItem("enabled", JSON.stringify(settings.enabled));
   localStorage.setItem("warn", JSON.stringify(settings.warn));
   localStorage.setItem("mute", JSON.stringify(settings.mute));
+  localStorage.setItem("blur", JSON.stringify(settings.blur));
   localStorage.setItem("timer", settings.timer.toString());
 }
 

@@ -7,6 +7,7 @@ type ExtensionSettings = {
   enabled: boolean;
   warn: boolean;
   mute: boolean;
+  blur: boolean;
   timer: number;
 };
 
@@ -39,11 +40,13 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
     enabled: true,
     warn: false,
     mute: false,
+    blur: false,
     timer: 3
   };
   const BRIDGE_MESSAGE_SOURCE = "__JUMPSCARE_NETFLIX_BRIDGE__";
   const BRIDGE_SCRIPT_ID = "jumpscare-netflix-player-bridge";
   const WARNING_OVERLAY_ID = "jumpscare-warning-overlay";
+  const BLUR_OVERLAY_ID = "jumpscare-blur-overlay";
   const MUTE_BEFORE_SECONDS = 2;
   const MUTE_AFTER_SECONDS = 2;
   const SEEK_BACK_RESET_THRESHOLD = 8;
@@ -85,7 +88,8 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
   let bridgeTimeUpdatedAt = 0;
   let bridgeInjected = false;
   let activeMute: ActiveMuteState | null = null;
-  let mutedScares = new Set<number>();
+  let activeBlur: { scareTime: number } | null = null;
+  let triggeredScares = new Set<number>();
   let lastAutomationTime: number | null = null;
   let warningOverlay: HTMLDivElement | null = null;
   let warningOverlayValue: HTMLSpanElement | null = null;
@@ -138,6 +142,7 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
           : DEFAULT_SETTINGS.enabled,
       warn: Boolean(rawSettings?.warn),
       mute: Boolean(rawSettings?.mute),
+      blur: Boolean(rawSettings?.blur),
       timer: Number.isFinite(Number(rawSettings?.timer))
         ? Number(rawSettings?.timer)
         : DEFAULT_SETTINGS.timer
@@ -167,6 +172,7 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
         !("enabled" in changes) &&
         !("warn" in changes) &&
         !("mute" in changes) &&
+        !("blur" in changes) &&
         !("timer" in changes)
       ) {
         return;
@@ -196,8 +202,10 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
     return (
       node instanceof HTMLElement &&
       (node.id === WARNING_OVERLAY_ID ||
+        node.id === BLUR_OVERLAY_ID ||
         node.id === BRIDGE_SCRIPT_ID ||
-        node.closest?.(`#${WARNING_OVERLAY_ID}`) instanceof HTMLElement)
+        node.closest?.(`#${WARNING_OVERLAY_ID}`) instanceof HTMLElement ||
+        node.closest?.(`#${BLUR_OVERLAY_ID}`) instanceof HTMLElement)
     );
   }
 
@@ -454,6 +462,47 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
     overlay.style.transform = "translateY(0)";
   }
 
+  function ensureBlurOverlay(): void {
+    const host = getWarningOverlayHost();
+    const existingOverlay = document.getElementById(BLUR_OVERLAY_ID);
+    
+    if (existingOverlay instanceof HTMLDivElement) {
+      if (existingOverlay.parentElement !== host) {
+        host.appendChild(existingOverlay);
+      }
+      return;
+    }
+
+    const overlay = document.createElement("div");
+    overlay.id = BLUR_OVERLAY_ID;
+    Object.assign(overlay.style, {
+      position: "fixed",
+      top: "0",
+      left: "0",
+      width: "100vw",
+      height: "100vh",
+      backdropFilter: "blur(25px)",
+      WebkitBackdropFilter: "blur(25px)",
+      pointerEvents: "none",
+      zIndex: "2147483646",
+      transition: "backdrop-filter 0.1s ease"
+    });
+
+    host.appendChild(overlay);
+  }
+
+  function removeBlurOverlay(): void {
+    const existingOverlay = document.getElementById(BLUR_OVERLAY_ID);
+    if (existingOverlay) {
+      existingOverlay.remove();
+    }
+  }
+
+  function clearAutoBlur(): void {
+    activeBlur = null;
+    removeBlurOverlay();
+  }
+
   function clearAutoMute(): void {
     if (!activeMute) {
       return;
@@ -470,7 +519,8 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
 
   function resetAutomationState(): void {
     clearAutoMute();
-    mutedScares = new Set();
+    clearAutoBlur();
+    triggeredScares = new Set();
     lastAutomationTime = null;
     removeWarningOverlay();
   }
@@ -502,12 +552,13 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
   }
 
   function resetTriggeredScaresForSeek(currentTime: number): void {
-    mutedScares = new Set(
-      [...mutedScares].filter(
+    triggeredScares = new Set(
+      [...triggeredScares].filter(
         scareTime => scareTime < currentTime - MUTE_BEFORE_SECONDS
       )
     );
     clearAutoMute();
+    clearAutoBlur();
   }
 
   function triggerMute(scareTime: number): void {
@@ -522,9 +573,20 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
       restoreMuted: trackedVideo.muted,
       video: trackedVideo
     };
-    mutedScares.add(scareTime);
 
     trackedVideo.muted = true;
+  }
+
+  function triggerBlur(scareTime: number): void {
+    if (activeBlur && activeBlur.scareTime === scareTime) {
+      return;
+    }
+
+    clearAutoBlur();
+
+    activeBlur = { scareTime };
+
+    ensureBlurOverlay();
   }
 
   function evaluateAutomation(currentTime: number | null): void {
@@ -532,12 +594,16 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
 
     if (!settings.enabled) {
       clearAutoMute();
+      clearAutoBlur();
       return;
     }
 
     if (typeof currentTime !== "number" || !Number.isFinite(currentTime)) {
       if (!settings.mute) {
         clearAutoMute();
+      }
+      if (!settings.blur) {
+        clearAutoBlur();
       }
       return;
     }
@@ -552,6 +618,7 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
 
     if (jumpscareTimes.length === 0) {
       clearAutoMute();
+      clearAutoBlur();
       return;
     }
 
@@ -565,20 +632,32 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
       }
     }
 
+    if (activeBlur) {
+      const inBlurWindow =
+        currentTime >= activeBlur.scareTime - MUTE_BEFORE_SECONDS &&
+        currentTime < activeBlur.scareTime + MUTE_AFTER_SECONDS;
+
+      if (!settings.blur || !inBlurWindow) {
+        clearAutoBlur();
+      }
+    }
+
     if (trackedVideo?.paused) {
       return;
     }
 
-    if (settings.mute) {
-      const scareToMute = jumpscareTimes.find(
+    if (settings.mute || settings.blur) {
+      const scareToActOn = jumpscareTimes.find(
         scareTime =>
-          !mutedScares.has(scareTime) &&
+          !triggeredScares.has(scareTime) &&
           currentTime >= scareTime - MUTE_BEFORE_SECONDS &&
           currentTime < scareTime + MUTE_AFTER_SECONDS
       );
 
-      if (scareToMute !== undefined) {
-        triggerMute(scareToMute);
+      if (scareToActOn !== undefined) {
+        triggeredScares.add(scareToActOn);
+        if (settings.mute) triggerMute(scareToActOn);
+        if (settings.blur) triggerBlur(scareToActOn);
       }
     }
   }
