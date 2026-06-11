@@ -263,14 +263,14 @@ export default function App() {
         </div>
       </div>
 
-      <div className="control">
+      <div className="control info-control">
         <label>TITLE</label>
-        <span style={{ fontFamily: 'Creepster', fontSize: '1.4rem', letterSpacing: '2px' }}>{movieTitle || 'NONE'}</span>
+        <span className="info-value">{movieTitle || 'NONE'}</span>
       </div>
 
-      <div className="control">
+      <div className="control info-control">
         <label>NEXT SCARE</label>
-        <span style={{ fontFamily: 'Creepster', fontSize: '1.4rem', letterSpacing: '2px' }}>
+        <span className="info-value">
           {secondsToNextScare != null ? `${secondsToNextScare}s` : '--'}
         </span>
       </div>

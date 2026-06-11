@@ -370,6 +370,32 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
       return existingOverlay;
     }
 
+    if (!document.getElementById("jumpscare-warning-styles")) {
+      const style = document.createElement("style");
+      style.id = "jumpscare-warning-styles";
+      style.textContent = `
+        @keyframes jumpscareHeartbeat {
+          0%, 100% {
+            border-color: rgba(220, 47, 47, 0.2);
+            box-shadow: 0 14px 32px rgba(0, 0, 0, 0.4), 0 0 0 rgba(220, 47, 47, 0);
+          }
+          50% {
+            border-color: rgba(220, 47, 47, 0.9);
+            box-shadow: 0 14px 32px rgba(0, 0, 0, 0.4), 0 0 24px rgba(220, 47, 47, 0.6);
+          }
+        }
+        @keyframes jumpscareTextPulse {
+          0%, 100% {
+            text-shadow: 0 0 4px rgba(220, 47, 47, 0.1);
+          }
+          50% {
+            text-shadow: 0 0 16px rgba(220, 47, 47, 0.9);
+          }
+        }
+      `;
+      document.head.appendChild(style);
+    }
+
     const overlay = document.createElement("div");
     overlay.id = WARNING_OVERLAY_ID;
     Object.assign(overlay.style, {
@@ -378,47 +404,58 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
       right: "24px",
       transform: "translateY(-12px)",
       display: "flex",
-      flexDirection: "column",
-      alignItems: "flex-start",
-      gap: "4px",
-      minWidth: "148px",
-      padding: "12px 16px",
-      borderRadius: "16px",
-      border: "1px solid rgba(220, 47, 47, 0.72)",
+      flexDirection: "row",
+      alignItems: "center",
+      gap: "10px",
+      padding: "8px 20px 8px 14px",
+      borderRadius: "9999px",
+      border: "1px solid rgba(220, 47, 47, 0.4)",
       background:
-        "linear-gradient(160deg, rgba(24, 24, 24, 0.96), rgba(10, 10, 10, 0.92))",
+        "linear-gradient(160deg, rgba(32, 32, 32, 0.96), rgba(16, 16, 16, 0.92))",
       boxShadow: "0 14px 32px rgba(0, 0, 0, 0.4)",
       backdropFilter: "blur(8px)",
       color: "#ffffff",
-      fontFamily: "system-ui, sans-serif",
+      fontFamily: "system-ui, -apple-system, sans-serif",
       pointerEvents: "none",
       zIndex: "2147483647",
       opacity: "0",
-      transition: "opacity 160ms ease, transform 160ms ease"
+      transition: "opacity 160ms ease, transform 160ms ease",
+      animation: "jumpscareHeartbeat var(--jumpscare-pulse-duration, 1s) infinite"
+    });
+
+    const icon = document.createElement("div");
+    icon.innerHTML = `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 2.5L1 21.5h22L12 2.5z" fill="#dc2f2f" stroke="#dc2f2f" stroke-width="1" stroke-linejoin="round"/>
+      <path d="M11 10h2v5h-2v-5zm0 7h2v2h-2v-2z" fill="#fff"/>
+    </svg>`;
+    Object.assign(icon.style, {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center"
     });
 
     const label = document.createElement("span");
-    label.textContent = "JUMP SCARE";
+    label.textContent = "JUMPSCARE IN";
     Object.assign(label.style, {
-      fontSize: "10px",
-      fontWeight: "700",
-      letterSpacing: "0.22em",
-      textTransform: "uppercase",
-      color: "rgba(255, 255, 255, 0.72)"
+      fontSize: "14px",
+      fontWeight: "600",
+      letterSpacing: "0.06em",
+      color: "rgba(255, 255, 255, 0.9)",
+      whiteSpace: "nowrap"
     });
 
     const value = document.createElement("span");
     value.dataset.jumpscareCountdownValue = "true";
     value.textContent = "0s";
     Object.assign(value.style, {
-      fontSize: "32px",
-      fontWeight: "800",
-      lineHeight: "1",
-      color: "#ff7575",
-      textShadow: "0 0 18px rgba(220, 47, 47, 0.28)"
+      fontSize: "22px",
+      fontWeight: "700",
+      color: "#ffffff",
+      fontVariantNumeric: "tabular-nums",
+      animation: "jumpscareTextPulse var(--jumpscare-pulse-duration, 1s) infinite"
     });
 
-    overlay.append(label, value);
+    overlay.append(icon, label, value);
     host.appendChild(overlay);
 
     warningOverlay = overlay;
@@ -458,6 +495,10 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
     if (warningOverlayValue.textContent !== nextOverlayText) {
       warningOverlayValue.textContent = nextOverlayText;
     }
+
+    const pulseSpeed = Math.max(0.25, timeUntilNextScare / 10);
+    overlay.style.setProperty("--jumpscare-pulse-duration", `${pulseSpeed}s`);
+
     overlay.style.opacity = "1";
     overlay.style.transform = "translateY(0)";
   }
