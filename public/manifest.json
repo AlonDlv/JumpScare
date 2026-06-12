@@ -14,9 +14,7 @@
   ],
   "host_permissions": [
     "*://*.netflix.com/*",
-    "https://cybki9m36c.execute-api.eu-north-1.amazonaws.com/*",
-    "http://*/*",
-    "https://*/*"
+    "https://cybki9m36c.execute-api.eu-north-1.amazonaws.com/*"
   ],
   "icons": {
     "32": "death.png"
