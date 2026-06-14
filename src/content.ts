@@ -25,8 +25,13 @@ type ActiveMuteState = {
   video: HTMLVideoElement;
 };
 
+type JumpscareEvent = {
+  time_stamp: string;
+  severity: string;
+};
+
 type JumpscareEntry = {
-  time_stamps?: string[];
+  jump_scares?: JumpscareEvent[];
 };
 
 const windowWithFlags = window as WindowWithJumpscareFlags;
@@ -98,13 +103,14 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
   function parseJumpscareSeconds(
     entry: JumpscareEntry | null | undefined
   ): number[] {
-    const rawTimestamps = Array.isArray(entry?.time_stamps)
-      ? entry.time_stamps
+    const rawScareObjects = Array.isArray(entry?.jump_scares)
+      ? entry.jump_scares
       : [];
 
-    return rawTimestamps
-      .map(timestamp => {
-        const [hours = 0, minutes = 0, seconds = 0] = timestamp
+    return rawScareObjects
+      .map(scare => {
+        if (!scare || typeof scare.time_stamp !== 'string') return NaN;
+        const [hours = 0, minutes = 0, seconds = 0] = scare.time_stamp
           .split(":")
           .map(Number);
 
