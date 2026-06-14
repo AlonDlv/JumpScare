@@ -1,7 +1,6 @@
 <div align="center">
-  <img src="public/death.png" alt="JumpsCare Logo" width="128" height="128">
+  <img src="src\assets\JumpsCareLogo.png" alt="JumpsCare Logo" width="340" height="340">
 
-  # JumpsCare
 
   **A Chrome extension for Netflix that helps you prepare for jumpscares while watching horror movies.**
 
