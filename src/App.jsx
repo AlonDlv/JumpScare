@@ -74,6 +74,36 @@ export default function App() {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [movieTitle, setMovieTitle] = useState(null);
   const [secondsToNextScare, setSecondsToNextScare] = useState(null);
+  const [expandedControl, setExpandedControl] = useState(null);
+  const pendingExpandRef = useRef(null);
+
+  const toggleExpand = (controlName) => {
+    if (expandedControl === controlName) {
+      setExpandedControl(null);
+      pendingExpandRef.current = null;
+    } else if (expandedControl !== null) {
+      setExpandedControl(null);
+      pendingExpandRef.current = controlName;
+      setTimeout(() => {
+        if (pendingExpandRef.current === controlName) {
+          setExpandedControl(controlName);
+          pendingExpandRef.current = null;
+        }
+      }, 400); // Wait for the max-height transition to finish
+    } else {
+      setExpandedControl(controlName);
+      pendingExpandRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    if (expandedControl !== null) {
+      if (!settings.enabled || settings[expandedControl] === false) {
+        setExpandedControl(null);
+        pendingExpandRef.current = null;
+      }
+    }
+  }, [settings.enabled, settings.mute, settings.warn, settings.blur, expandedControl]);
 
   const rangeRef = useRef(null);
   const [rangeWidth, setRangeWidth] = useState(0);
@@ -176,6 +206,23 @@ export default function App() {
     void saveSettings({ [key]: value });
   };
 
+  const updateFeatureToggle = (feature, newValue) => {
+    if (newValue) {
+      const updates = {
+        [feature]: true,
+        [`${feature}Major`]: true,
+        [`${feature}Minor`]: true
+      };
+      setSettings(previousSettings => ({
+        ...previousSettings,
+        ...updates
+      }));
+      void saveSettings(updates);
+    } else {
+      updateSetting(feature, false);
+    }
+  };
+
   const usableWidth = Math.max(rangeWidth - DOT_SIZE, 0);
   const sliderFraction = (settings.timer - MIN_TIMER) / (MAX_TIMER - MIN_TIMER);
   const sliderLeft = usableWidth * sliderFraction + DOT_SIZE / 2;
@@ -199,49 +246,118 @@ export default function App() {
         </div>
       </div>
 
-      <div className={`control ${areFeatureTogglesDisabled ? 'is-disabled' : ''}`}>
-        <label htmlFor="mute">MUTE</label>
-        <div className="toggle">
-          <input
-            type="checkbox"
-            id="mute"
-            checked={settings.mute}
-            disabled={areFeatureTogglesDisabled}
-            onChange={() => updateSetting('mute', !settings.mute)}
-          />
-          <span className="slider" />
+      <div className={`control-wrapper ${expandedControl === 'mute' ? 'is-expanded' : ''} ${areFeatureTogglesDisabled ? 'is-disabled' : ''}`}>
+        <div className="main-control">
+          <label 
+            onClick={() => toggleExpand('mute')} 
+            className={`feature-label ${expandedControl === 'mute' ? 'blood-fill' : ''}`}
+          >
+            MUTE
+          </label>
+          <div className="toggle">
+            <input
+              type="checkbox"
+              id="mute"
+              checked={settings.mute}
+              disabled={areFeatureTogglesDisabled}
+              onChange={() => updateFeatureToggle('mute', !settings.mute)}
+            />
+            <span className="slider" />
+          </div>
+        </div>
+        <div className="sub-controls">
+          <div className="sub-control">
+            <label htmlFor="muteMajor">Major</label>
+            <div className="toggle scale-down">
+              <input type="checkbox" id="muteMajor" checked={settings.muteMajor} disabled={areFeatureTogglesDisabled} onChange={() => updateSetting('muteMajor', !settings.muteMajor)} />
+              <span className="slider" />
+            </div>
+          </div>
+          <div className="sub-control">
+            <label htmlFor="muteMinor">Minor</label>
+            <div className="toggle scale-down">
+              <input type="checkbox" id="muteMinor" checked={settings.muteMinor} disabled={areFeatureTogglesDisabled} onChange={() => updateSetting('muteMinor', !settings.muteMinor)} />
+              <span className="slider" />
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className={`control ${areFeatureTogglesDisabled ? 'is-disabled' : ''}`}>
-        <label htmlFor="warn">WARN</label>
-        <div className="toggle">
-          <input
-            type="checkbox"
-            id="warn"
-            checked={settings.warn}
-            disabled={areFeatureTogglesDisabled}
-            onChange={() => updateSetting('warn', !settings.warn)}
-          />
-          <span className="slider" />
+      <div className={`control-wrapper ${expandedControl === 'blur' ? 'is-expanded' : ''} ${areFeatureTogglesDisabled ? 'is-disabled' : ''}`}>
+        <div className="main-control">
+          <label 
+            onClick={() => toggleExpand('blur')} 
+            className={`feature-label ${expandedControl === 'blur' ? 'blood-fill' : ''}`}
+          >
+            BLUR
+          </label>
+          <div className="toggle">
+            <input
+              type="checkbox"
+              id="blur"
+              checked={settings.blur}
+              disabled={areFeatureTogglesDisabled}
+              onChange={() => updateFeatureToggle('blur', !settings.blur)}
+            />
+            <span className="slider" />
+          </div>
+        </div>
+        <div className="sub-controls">
+          <div className="sub-control">
+            <label htmlFor="blurMajor">Major</label>
+            <div className="toggle scale-down">
+              <input type="checkbox" id="blurMajor" checked={settings.blurMajor} disabled={areFeatureTogglesDisabled} onChange={() => updateSetting('blurMajor', !settings.blurMajor)} />
+              <span className="slider" />
+            </div>
+          </div>
+          <div className="sub-control">
+            <label htmlFor="blurMinor">Minor</label>
+            <div className="toggle scale-down">
+              <input type="checkbox" id="blurMinor" checked={settings.blurMinor} disabled={areFeatureTogglesDisabled} onChange={() => updateSetting('blurMinor', !settings.blurMinor)} />
+              <span className="slider" />
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className={`control ${areFeatureTogglesDisabled ? 'is-disabled' : ''}`}>
-        <label htmlFor="blur">BLUR</label>
-        <div className="toggle">
-          <input
-            type="checkbox"
-            id="blur"
-            checked={settings.blur}
-            disabled={areFeatureTogglesDisabled}
-            onChange={() => updateSetting('blur', !settings.blur)}
-          />
-          <span className="slider" />
+      <div className={`control-wrapper ${expandedControl === 'warn' ? 'is-expanded' : ''} ${areFeatureTogglesDisabled ? 'is-disabled' : ''}`}>
+        <div className="main-control">
+          <label 
+            onClick={() => toggleExpand('warn')} 
+            className={`feature-label ${expandedControl === 'warn' ? 'blood-fill' : ''}`}
+          >
+            WARN
+          </label>
+          <div className="toggle">
+            <input
+              type="checkbox"
+              id="warn"
+              checked={settings.warn}
+              disabled={areFeatureTogglesDisabled}
+              onChange={() => updateFeatureToggle('warn', !settings.warn)}
+            />
+            <span className="slider" />
+          </div>
+        </div>
+        <div className="sub-controls">
+          <div className="sub-control">
+            <label htmlFor="warnMajor">Major</label>
+            <div className="toggle scale-down">
+              <input type="checkbox" id="warnMajor" checked={settings.warnMajor} disabled={areFeatureTogglesDisabled} onChange={() => updateSetting('warnMajor', !settings.warnMajor)} />
+              <span className="slider" />
+            </div>
+          </div>
+          <div className="sub-control">
+            <label htmlFor="warnMinor">Minor</label>
+            <div className="toggle scale-down">
+              <input type="checkbox" id="warnMinor" checked={settings.warnMinor} disabled={areFeatureTogglesDisabled} onChange={() => updateSetting('warnMinor', !settings.warnMinor)} />
+              <span className="slider" />
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className={`control timer-control ${isTimerDisabled ? 'is-disabled' : ''}`}>
+      <div className={`control ${isTimerDisabled ? 'is-disabled' : ''}`} style={{ marginTop: '8px', padding: '16px', flexDirection: 'column', alignItems: 'stretch', borderRadius: '22px' }}>
         <label htmlFor="timer">TIMER</label>
         <div className={`range-container ${isTimerDisabled ? 'is-disabled' : ''}`}>
           <input

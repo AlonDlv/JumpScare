@@ -6,8 +6,14 @@ type WindowWithJumpscareFlags = Window & {
 type ExtensionSettings = {
   enabled: boolean;
   warn: boolean;
+  warnMajor: boolean;
+  warnMinor: boolean;
   mute: boolean;
+  muteMajor: boolean;
+  muteMinor: boolean;
   blur: boolean;
+  blurMajor: boolean;
+  blurMinor: boolean;
   timer: number;
 };
 
@@ -44,8 +50,14 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
   const DEFAULT_SETTINGS: ExtensionSettings = {
     enabled: true,
     warn: false,
+    warnMajor: true,
+    warnMinor: true,
     mute: false,
+    muteMajor: true,
+    muteMinor: true,
     blur: false,
+    blurMajor: true,
+    blurMinor: true,
     timer: 3
   };
   const BRIDGE_MESSAGE_SOURCE = "__JUMPSCARE_NETFLIX_BRIDGE__";
@@ -85,7 +97,7 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
   let settings: ExtensionSettings = DEFAULT_SETTINGS;
   let currentTitle: string | null = null;
   let matchedMovieTitle: string | null = null;
-  let jumpscareTimes: number[] = [];
+  let jumpscareTimes: { time: number; severity: string }[] = [];
   let trackedVideo: HTMLVideoElement | null = null;
   let lastPublishedSecond = -1;
   let lastKnownUrl = location.href;
@@ -102,21 +114,24 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
 
   function parseJumpscareSeconds(
     entry: JumpscareEntry | null | undefined
-  ): number[] {
+  ): { time: number; severity: string }[] {
     const rawScareObjects = Array.isArray(entry?.jump_scares)
       ? entry.jump_scares
       : [];
 
     return rawScareObjects
       .map(scare => {
-        if (!scare || typeof scare.time_stamp !== 'string') return NaN;
+        if (!scare || typeof scare.time_stamp !== 'string') return null;
         const [hours = 0, minutes = 0, seconds = 0] = scare.time_stamp
           .split(":")
           .map(Number);
 
-        return hours * 3600 + minutes * 60 + seconds;
+        return {
+          time: hours * 3600 + minutes * 60 + seconds,
+          severity: typeof scare.severity === 'string' ? scare.severity : 'Minor'
+        };
       })
-      .filter(Number.isFinite);
+      .filter((item): item is { time: number; severity: string } => item !== null && Number.isFinite(item.time));
   }
 
   function fetchJumpscareData(movieTitle: string): Promise<JumpscareEntry | null> {
@@ -147,8 +162,14 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
           ? rawSettings.enabled
           : DEFAULT_SETTINGS.enabled,
       warn: Boolean(rawSettings?.warn),
+      warnMajor: typeof rawSettings?.warnMajor === "boolean" ? rawSettings.warnMajor : DEFAULT_SETTINGS.warnMajor,
+      warnMinor: typeof rawSettings?.warnMinor === "boolean" ? rawSettings.warnMinor : DEFAULT_SETTINGS.warnMinor,
       mute: Boolean(rawSettings?.mute),
+      muteMajor: typeof rawSettings?.muteMajor === "boolean" ? rawSettings.muteMajor : DEFAULT_SETTINGS.muteMajor,
+      muteMinor: typeof rawSettings?.muteMinor === "boolean" ? rawSettings.muteMinor : DEFAULT_SETTINGS.muteMinor,
       blur: Boolean(rawSettings?.blur),
+      blurMajor: typeof rawSettings?.blurMajor === "boolean" ? rawSettings.blurMajor : DEFAULT_SETTINGS.blurMajor,
+      blurMinor: typeof rawSettings?.blurMinor === "boolean" ? rawSettings.blurMinor : DEFAULT_SETTINGS.blurMinor,
       timer: Number.isFinite(Number(rawSettings?.timer))
         ? Number(rawSettings?.timer)
         : DEFAULT_SETTINGS.timer
@@ -177,8 +198,14 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
       if (
         !("enabled" in changes) &&
         !("warn" in changes) &&
+        !("warnMajor" in changes) &&
+        !("warnMinor" in changes) &&
         !("mute" in changes) &&
+        !("muteMajor" in changes) &&
+        !("muteMinor" in changes) &&
         !("blur" in changes) &&
+        !("blurMajor" in changes) &&
+        !("blurMinor" in changes) &&
         !("timer" in changes)
       ) {
         return;
@@ -315,8 +342,8 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
       return null;
     }
 
-    const nextScare = jumpscareTimes.find(scareTime => scareTime > currentTime);
-    return nextScare != null ? nextScare - currentTime : null;
+    const nextScare = jumpscareTimes.find(scare => scare.time > currentTime);
+    return nextScare != null ? nextScare.time - currentTime : null;
   }
 
   function getSecondsToNextScare(currentTime: number | null): number | null {
@@ -476,18 +503,20 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
   }
 
   function updateWarningOverlay(currentTime: number | null): void {
-    if (!settings.warn) {
+    if (!settings.warn || !settings.enabled || typeof currentTime !== "number" || !Number.isFinite(currentTime)) {
       removeWarningOverlay();
       return;
     }
 
-    const timeUntilNextScare = getTimeUntilNextScare(currentTime);
+    const validScares = jumpscareTimes.filter(scare => {
+      if (scare.severity === "Major") return settings.warnMajor;
+      return settings.warnMinor;
+    });
 
-    if (
-      !settings.enabled ||
-      timeUntilNextScare === null ||
-      timeUntilNextScare > settings.timer
-    ) {
+    const nextScare = validScares.find(scare => scare.time > currentTime);
+    const timeUntilNextScare = nextScare != null ? nextScare.time - currentTime : null;
+
+    if (timeUntilNextScare === null || timeUntilNextScare > settings.timer) {
       removeWarningOverlay();
       return;
     }
@@ -694,17 +723,22 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
     }
 
     if (settings.mute || settings.blur) {
-      const scareToActOn = jumpscareTimes.find(
-        scareTime =>
-          !triggeredScares.has(scareTime) &&
-          currentTime >= scareTime - MUTE_BEFORE_SECONDS &&
-          currentTime < scareTime + MUTE_AFTER_SECONDS
+      const activeScare = jumpscareTimes.find(
+        scare =>
+          !triggeredScares.has(scare.time) &&
+          currentTime >= scare.time - MUTE_BEFORE_SECONDS &&
+          currentTime < scare.time + MUTE_AFTER_SECONDS
       );
 
-      if (scareToActOn !== undefined) {
-        triggeredScares.add(scareToActOn);
-        if (settings.mute) triggerMute(scareToActOn);
-        if (settings.blur) triggerBlur(scareToActOn);
+      if (activeScare !== undefined) {
+        triggeredScares.add(activeScare.time);
+        
+        const isMajor = activeScare.severity === "Major";
+        const shouldMute = settings.mute && (isMajor ? settings.muteMajor : settings.muteMinor);
+        const shouldBlur = settings.blur && (isMajor ? settings.blurMajor : settings.blurMinor);
+
+        if (shouldMute) triggerMute(activeScare.time);
+        if (shouldBlur) triggerBlur(activeScare.time);
       }
     }
   }

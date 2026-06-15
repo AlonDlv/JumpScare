@@ -39,7 +39,6 @@ body {
 
 .container {
   width: 100%;
-  height: 100%;
   padding: 16px 20px;
   box-sizing: border-box;
   display: flex;
@@ -271,4 +270,103 @@ body {
   text-overflow: ellipsis;
   text-align: right;
   letter-spacing: 2px;
+}
+
+/* New Expandable Controls */
+.control-wrapper {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: background 0.2s ease, border-color 0.2s ease, max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  max-height: 46px; /* collapsed height */
+}
+
+.control-wrapper:hover {
+  background: var(--surface-hover);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.control-wrapper.is-expanded {
+  max-height: 140px;
+  background: var(--surface-hover);
+}
+
+.control-wrapper.is-disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.main-control {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.feature-label {
+  font-size: 1.15rem;
+  font-weight: normal;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin: 0;
+  cursor: pointer;
+  user-select: none;
+  background: linear-gradient(to top, var(--accent) 50%, var(--text) 50%);
+  background-size: 100% 200%;
+  background-position: top;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  transition: background-position 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.feature-label:hover {
+  text-shadow: 0 0 8px rgba(255,255,255,0.2);
+}
+
+.feature-label.blood-fill {
+  background-position: bottom;
+}
+
+.sub-controls {
+  display: flex;
+  flex-direction: column;
+  padding: 0px 16px 12px 32px;
+  gap: 12px;
+  opacity: 0;
+  transform: translateY(-10px);
+  transition: opacity 0.3s ease 0.1s, transform 0.3s ease 0.1s;
+  pointer-events: none;
+}
+
+.control-wrapper.is-expanded .sub-controls {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.sub-control {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sub-control label {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  text-transform: none;
+  margin: 0;
+}
+
+.toggle.scale-down {
+  transform: scale(0.8);
+  transform-origin: right center;
 }
