@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import './App.css';
 import logo from './assets/JumpsCareLogo.png';
+import spiderImg from './assets/spider.png';
 import {
   DEFAULT_SETTINGS,
   MAX_TIMER,
@@ -74,8 +75,49 @@ export default function App() {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [movieTitle, setMovieTitle] = useState(null);
   const [secondsToNextScare, setSecondsToNextScare] = useState(null);
+  const [currentTime, setCurrentTime] = useState(null);
   const [expandedControl, setExpandedControl] = useState(null);
+  const [showBugReport, setShowBugReport] = useState(false);
+  const [bugText, setBugText] = useState("");
+  const [isSending, setIsSending] = useState(false);
   const pendingExpandRef = useRef(null);
+
+  const handleSendBug = async () => {
+    if (!bugText.trim()) return;
+    
+    let formattedTime = 'Unknown';
+    if (currentTime !== null) {
+      const h = Math.floor(currentTime / 3600);
+      const m = Math.floor((currentTime % 3600) / 60);
+      const s = Math.floor(currentTime % 60);
+      formattedTime = h > 0 ? `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}` : `${m}:${s.toString().padStart(2, '0')}`;
+    }
+
+    const fullMessage = `${bugText}\n\n---\nDiagnostic Info:\nStreaming Service: Netflix\nMovie Title: ${movieTitle || 'Unknown'}\nCurrent Time: ${formattedTime}`;
+
+    setIsSending(true);
+    try {
+      await fetch('https://api.web3forms.com/submit', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          access_key: 'd1d5fde6-bcb5-4f11-91df-2100482235b8',
+          subject: 'New Bug Report - JumpScare Extension',
+          message: fullMessage,
+          from_name: 'JumpScare User'
+        })
+      });
+    } catch (error) {
+      console.error('Error sending bug report:', error);
+    } finally {
+      setIsSending(false);
+      setShowBugReport(false);
+      setBugText("");
+    }
+  };
 
   const toggleExpand = (controlName) => {
     if (expandedControl === controlName) {
@@ -154,6 +196,7 @@ export default function App() {
 
       setMovieTitle(null);
       setSecondsToNextScare(null);
+      setCurrentTime(null);
     };
 
     const syncPlaybackState = async () => {
@@ -181,9 +224,15 @@ export default function App() {
         Number.isFinite(response.secondsToNextScare)
           ? response.secondsToNextScare
           : null;
+      const nextCurrentTime =
+        typeof response.currentTime === 'number' &&
+        Number.isFinite(response.currentTime)
+          ? response.currentTime
+          : null;
 
       setMovieTitle(previousTitle => nextTitle ?? previousTitle);
       setSecondsToNextScare(nextSecondsToNextScare);
+      setCurrentTime(nextCurrentTime);
     };
 
     void syncPlaybackState();
@@ -231,6 +280,12 @@ export default function App() {
 
   return (
     <div className="container">
+      <img 
+        src={spiderImg} 
+        alt="Spider decoration" 
+        className="spider-decoration" 
+        onClick={() => setShowBugReport(true)}
+      />
       <img src={logo} alt="JumpScare Logo" className="logo" />
 
       <div className="control">
@@ -390,6 +445,27 @@ export default function App() {
           {secondsToNextScare != null ? `${secondsToNextScare}s` : '--'}
         </span>
       </div>
+
+      {showBugReport && (
+        <div className="bug-report-overlay">
+          <h2 className="bug-report-title">Report a Bug</h2>
+          <textarea 
+            className="bug-report-textarea"
+            placeholder="Describe the bug here..."
+            value={bugText}
+            onChange={(e) => setBugText(e.target.value)}
+          />
+          <p className="bug-report-disclaimer">
+            Note: This report will automatically include the current movie title, playback time, and streaming service to help us debug faster.
+          </p>
+          <div className="bug-report-actions">
+            <button className="bug-report-btn cancel" onClick={() => { setShowBugReport(false); setBugText(""); }} disabled={isSending}>Cancel</button>
+            <button className="bug-report-btn send" onClick={handleSendBug} disabled={isSending || !bugText.trim()}>
+              {isSending ? 'Sending...' : 'Send'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
