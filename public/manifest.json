@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "JumpsCare",
-  "version": "1.0",
+  "version": "1.2",
   "description": "Detects jumpscares",
   "action": {
     "default_popup": "index.html"
@@ -24,15 +24,23 @@
   },
   "content_scripts": [
     {
-      "matches": ["*://*.netflix.com/watch*"],
-      "js": ["content.js"],
+      "matches": [
+        "*://*.netflix.com/watch*"
+      ],
+      "js": [
+        "content.js"
+      ],
       "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["page-bridge.js"],
-      "matches": ["*://*.netflix.com/*"]
+      "resources": [
+        "page-bridge.js"
+      ],
+      "matches": [
+        "*://*.netflix.com/*"
+      ]
     }
   ]
 }

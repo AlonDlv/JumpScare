@@ -320,12 +320,41 @@ body {
 }
 
 .main-control {
+  position: relative;
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 8px 16px;
   width: 100%;
   box-sizing: border-box;
+}
+
+.expand-arrow {
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  transform: translateX(-50%);
+  color: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  padding: 4px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.3s ease;
+}
+
+.expand-arrow:hover {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.expand-arrow svg {
+  width: 10px;
+  height: auto;
+  transition: transform 0.3s ease;
+}
+
+.expand-arrow.is-expanded svg {
+  transform: rotate(180deg);
 }
 
 .feature-label {

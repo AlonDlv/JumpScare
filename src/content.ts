@@ -963,7 +963,7 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
 
   const observer = new MutationObserver(records => {
     const onlyManagedNodesChanged = records.every(record =>
-      [...record.addedNodes, ...record.removedNodes].every(isManagedOverlayNode)
+      [...Array.from(record.addedNodes), ...Array.from(record.removedNodes)].every(isManagedOverlayNode)
     );
 
     if (onlyManagedNodesChanged) {
