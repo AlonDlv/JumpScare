@@ -14,7 +14,11 @@ type ExtensionSettings = {
   blur: boolean;
   blurMajor: boolean;
   blurMinor: boolean;
+  skip: boolean;
+  skipMajor: boolean;
+  skipMinor: boolean;
   timer: number;
+  movieOffsets: Record<string, number>;
 };
 
 type PlaybackState = {
@@ -23,6 +27,7 @@ type PlaybackState = {
   secondsToNextScare: number | null;
   hasVideo: boolean;
   url: string;
+  jumpscareTimes?: { time: number; severity: string }[];
 };
 
 type ActiveMuteState = {
@@ -58,14 +63,18 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
     blur: false,
     blurMajor: true,
     blurMinor: true,
-    timer: 3
+    skip: false,
+    skipMajor: true,
+    skipMinor: true,
+    timer: 3,
+    movieOffsets: {}
   };
   const BRIDGE_MESSAGE_SOURCE = "__JUMPSCARE_NETFLIX_BRIDGE__";
   const BRIDGE_SCRIPT_ID = "jumpscare-netflix-player-bridge";
   const WARNING_OVERLAY_ID = "jumpscare-warning-overlay";
-  const BLUR_OVERLAY_ID = "jumpscare-blur-overlay";
   const MUTE_BEFORE_SECONDS = 2;
   const MUTE_AFTER_SECONDS = 2;
+  const SKIP_AFTER_SECONDS = 4;
   const SEEK_BACK_RESET_THRESHOLD = 8;
   const TITLE_SELECTORS = [
     "[data-uia='video-title']",
@@ -153,6 +162,21 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
     });
   }
 
+  function normalizeMovieOffsets(value: unknown): Record<string, number> {
+    if (typeof value !== "object" || value === null) {
+      return DEFAULT_SETTINGS.movieOffsets;
+    }
+    
+    const result: Record<string, number> = {};
+    for (const [key, val] of Object.entries(value)) {
+      const num = Number(val);
+      if (Number.isFinite(num)) {
+        result[key] = Math.min(300, Math.max(-300, num));
+      }
+    }
+    return result;
+  }
+
   function normalizeSettings(
     rawSettings: Partial<ExtensionSettings> | null | undefined
   ): ExtensionSettings {
@@ -170,9 +194,13 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
       blur: Boolean(rawSettings?.blur),
       blurMajor: typeof rawSettings?.blurMajor === "boolean" ? rawSettings.blurMajor : DEFAULT_SETTINGS.blurMajor,
       blurMinor: typeof rawSettings?.blurMinor === "boolean" ? rawSettings.blurMinor : DEFAULT_SETTINGS.blurMinor,
+      skip: Boolean(rawSettings?.skip),
+      skipMajor: typeof rawSettings?.skipMajor === "boolean" ? rawSettings.skipMajor : DEFAULT_SETTINGS.skipMajor,
+      skipMinor: typeof rawSettings?.skipMinor === "boolean" ? rawSettings.skipMinor : DEFAULT_SETTINGS.skipMinor,
       timer: Number.isFinite(Number(rawSettings?.timer))
         ? Number(rawSettings?.timer)
-        : DEFAULT_SETTINGS.timer
+        : DEFAULT_SETTINGS.timer,
+      movieOffsets: normalizeMovieOffsets(rawSettings?.movieOffsets)
     };
   }
 
@@ -206,7 +234,11 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
         !("blur" in changes) &&
         !("blurMajor" in changes) &&
         !("blurMinor" in changes) &&
-        !("timer" in changes)
+        !("skip" in changes) &&
+        !("skipMajor" in changes) &&
+        !("skipMinor" in changes) &&
+        !("timer" in changes) &&
+        !("movieOffsets" in changes)
       ) {
         return;
       }
@@ -220,6 +252,12 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
       chrome.storage.onChanged.removeListener(handleStorageChange);
     };
   }
+
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === "local" && changes.customJumpscares) {
+      void syncMatchedMovie(true);
+    }
+  });
 
   function sendRuntimeMessage(message: Record<string, unknown>): void {
     try {
@@ -235,10 +273,8 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
     return (
       node instanceof HTMLElement &&
       (node.id === WARNING_OVERLAY_ID ||
-        node.id === BLUR_OVERLAY_ID ||
         node.id === BRIDGE_SCRIPT_ID ||
-        node.closest?.(`#${WARNING_OVERLAY_ID}`) instanceof HTMLElement ||
-        node.closest?.(`#${BLUR_OVERLAY_ID}`) instanceof HTMLElement)
+        node.closest?.(`#${WARNING_OVERLAY_ID}`) instanceof HTMLElement)
     );
   }
 
@@ -338,12 +374,14 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
   }
 
   function getTimeUntilNextScare(currentTime: number | null): number | null {
-    if (typeof currentTime !== "number" || !Number.isFinite(currentTime)) {
+    const isValid = typeof currentTime === "number";
+    if (!isValid || Number.isNaN(currentTime)) {
       return null;
     }
 
-    const nextScare = jumpscareTimes.find(scare => scare.time > currentTime);
-    return nextScare != null ? nextScare.time - currentTime : null;
+    const offset = getCurrentOffset();
+    const nextScare = jumpscareTimes.find(scare => scare.time + offset > currentTime);
+    return nextScare != null ? (nextScare.time + offset) - currentTime : null;
   }
 
   function getSecondsToNextScare(currentTime: number | null): number | null {
@@ -361,7 +399,8 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
       hasVideo:
         Boolean(trackedVideo) ||
         document.querySelector("video") instanceof HTMLVideoElement,
-      url: location.href
+      url: location.href,
+      jumpscareTimes
     };
   }
 
@@ -497,7 +536,10 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
   }
 
   function removeWarningOverlay(): void {
-    warningOverlay?.remove();
+    const existingOverlay = document.getElementById(WARNING_OVERLAY_ID);
+    if (existingOverlay) {
+      existingOverlay.remove();
+    }
     warningOverlay = null;
     warningOverlayValue = null;
   }
@@ -508,13 +550,13 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
       return;
     }
 
-    const validScares = jumpscareTimes.filter(scare => {
-      if (scare.severity === "Major") return settings.warnMajor;
-      return settings.warnMinor;
-    });
+    const validScares = settings.warnMinor
+      ? jumpscareTimes
+      : jumpscareTimes.filter(s => s.severity === "Major");
 
-    const nextScare = validScares.find(scare => scare.time > currentTime);
-    const timeUntilNextScare = nextScare != null ? nextScare.time - currentTime : null;
+    const offset = getCurrentOffset();
+    const nextScare = validScares.find(scare => scare.time + offset > currentTime);
+    const timeUntilNextScare = nextScare != null ? (nextScare.time + offset) - currentTime : null;
 
     if (timeUntilNextScare === null || timeUntilNextScare > settings.timer) {
       removeWarningOverlay();
@@ -538,45 +580,18 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
     overlay.style.transform = "translateY(0)";
   }
 
-  function ensureBlurOverlay(): void {
-    const host = getWarningOverlayHost();
-    const existingOverlay = document.getElementById(BLUR_OVERLAY_ID);
-    
-    if (existingOverlay instanceof HTMLDivElement) {
-      if (existingOverlay.parentElement !== host) {
-        host.appendChild(existingOverlay);
-      }
-      return;
-    }
-
-    const overlay = document.createElement("div");
-    overlay.id = BLUR_OVERLAY_ID;
-    Object.assign(overlay.style, {
-      position: "fixed",
-      top: "0",
-      left: "0",
-      width: "100vw",
-      height: "100vh",
-      backdropFilter: "blur(25px)",
-      WebkitBackdropFilter: "blur(25px)",
-      pointerEvents: "none",
-      zIndex: "2147483646",
-      transition: "backdrop-filter 0.1s ease"
-    });
-
-    host.appendChild(overlay);
-  }
-
-  function removeBlurOverlay(): void {
-    const existingOverlay = document.getElementById(BLUR_OVERLAY_ID);
-    if (existingOverlay) {
-      existingOverlay.remove();
-    }
-  }
-
   function clearAutoBlur(): void {
     activeBlur = null;
-    removeBlurOverlay();
+    if (trackedVideo) {
+      trackedVideo.style.filter = "";
+      trackedVideo.style.transition = "";
+      trackedVideo.style.willChange = "";
+    }
+  }
+
+  function getCurrentOffset(): number {
+    if (!currentTitle || !settings.movieOffsets) return 0;
+    return settings.movieOffsets[currentTitle] || 0;
   }
 
   function clearAutoMute(): void {
@@ -601,7 +616,7 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
     removeWarningOverlay();
   }
 
-  async function syncMatchedMovie(): Promise<void> {
+  async function syncMatchedMovie(forceResync = false): Promise<void> {
     if (!currentTitle) {
       if (matchedMovieTitle !== null) {
         matchedMovieTitle = null;
@@ -611,19 +626,41 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
       return;
     }
 
-    if (currentTitle === matchedMovieTitle) {
+    if (currentTitle === matchedMovieTitle && !forceResync) {
       return;
     }
 
     const titleToFetch = currentTitle;
-    const data = await fetchJumpscareData(titleToFetch);
+    
+    const storageResult = await new Promise<any>(resolve => {
+      chrome.storage.local.get(["customJumpscares"], resolve);
+    });
+    
+    const customConfig = storageResult.customJumpscares?.[titleToFetch];
+    let finalScares: { time: number; severity: string }[] = [];
+    
+    if (customConfig && customConfig.useCustom) {
+      finalScares = customConfig.scares || [];
+    } else {
+      const data = await fetchJumpscareData(titleToFetch);
+      finalScares = data ? parseJumpscareSeconds(data) : [];
+    }
 
     if (currentTitle !== titleToFetch) {
       return;
     }
 
     matchedMovieTitle = titleToFetch;
-    jumpscareTimes = data ? parseJumpscareSeconds(data) : [];
+    jumpscareTimes = finalScares.map(s => {
+      let timeVal = Number(s.time);
+      if (isNaN(timeVal) && typeof s.time === 'string') {
+        timeVal = parseClockToSeconds(s.time) ?? NaN;
+      }
+      return {
+        time: timeVal,
+        severity: s.severity || "Major"
+      };
+    }).filter(s => !isNaN(s.time));
     resetAutomationState();
   }
 
@@ -662,7 +699,24 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
 
     activeBlur = { scareTime };
 
-    ensureBlurOverlay();
+    if (trackedVideo) {
+      trackedVideo.style.willChange = "filter";
+      trackedVideo.style.transition = "filter 0.1s ease";
+      trackedVideo.style.filter = "blur(15px) brightness(0.6)";
+    }
+  }
+
+  function triggerSkip(scareTime: number): void {
+    const offset = getCurrentOffset();
+    const targetTimeSeconds = scareTime + offset + SKIP_AFTER_SECONDS;
+    window.postMessage(
+      {
+        source: BRIDGE_MESSAGE_SOURCE,
+        action: "seekPlayer",
+        targetTimeMs: targetTimeSeconds * 1000
+      },
+      "*"
+    );
   }
 
   function evaluateAutomation(currentTime: number | null): void {
@@ -698,10 +752,13 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
       return;
     }
 
+    const offset = getCurrentOffset();
+
     if (activeMute) {
+      const adjustedMuteScareTime = activeMute.scareTime + offset;
       const inMuteWindow =
-        currentTime >= activeMute.scareTime - MUTE_BEFORE_SECONDS &&
-        currentTime < activeMute.scareTime + MUTE_AFTER_SECONDS;
+        currentTime >= adjustedMuteScareTime - MUTE_BEFORE_SECONDS &&
+        currentTime < adjustedMuteScareTime + MUTE_AFTER_SECONDS;
 
       if (!settings.mute || !inMuteWindow) {
         clearAutoMute();
@@ -709,9 +766,10 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
     }
 
     if (activeBlur) {
+      const adjustedBlurScareTime = activeBlur.scareTime + offset;
       const inBlurWindow =
-        currentTime >= activeBlur.scareTime - MUTE_BEFORE_SECONDS &&
-        currentTime < activeBlur.scareTime + MUTE_AFTER_SECONDS;
+        currentTime >= adjustedBlurScareTime - MUTE_BEFORE_SECONDS &&
+        currentTime < adjustedBlurScareTime + MUTE_AFTER_SECONDS;
 
       if (!settings.blur || !inBlurWindow) {
         clearAutoBlur();
@@ -722,23 +780,29 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
       return;
     }
 
-    if (settings.mute || settings.blur) {
+    if (settings.mute || settings.blur || settings.skip) {
       const activeScare = jumpscareTimes.find(
         scare =>
           !triggeredScares.has(scare.time) &&
-          currentTime >= scare.time - MUTE_BEFORE_SECONDS &&
-          currentTime < scare.time + MUTE_AFTER_SECONDS
+          currentTime >= scare.time + offset - MUTE_BEFORE_SECONDS &&
+          currentTime < scare.time + offset + MUTE_AFTER_SECONDS
       );
 
       if (activeScare !== undefined) {
         triggeredScares.add(activeScare.time);
         
         const isMajor = activeScare.severity === "Major";
-        const shouldMute = settings.mute && (isMajor ? settings.muteMajor : settings.muteMinor);
-        const shouldBlur = settings.blur && (isMajor ? settings.blurMajor : settings.blurMinor);
+        const shouldSkip = settings.skip && (isMajor ? settings.skipMajor : settings.skipMinor);
 
-        if (shouldMute) triggerMute(activeScare.time);
-        if (shouldBlur) triggerBlur(activeScare.time);
+        if (shouldSkip) {
+          triggerSkip(activeScare.time);
+        } else {
+          const shouldMute = settings.mute && (isMajor ? settings.muteMajor : settings.muteMinor);
+          const shouldBlur = settings.blur && (isMajor ? settings.blurMajor : settings.blurMinor);
+
+          if (shouldMute) triggerMute(activeScare.time);
+          if (shouldBlur) triggerBlur(activeScare.time);
+        }
       }
     }
   }
@@ -990,8 +1054,10 @@ if (!windowWithFlags.__jumpscareContentScriptInstalled) {
 
     if (!settings.enabled) {
       resetAutomationState();
-    } else if (!settings.mute) {
-      clearAutoMute();
+    } else {
+      if (!settings.mute) clearAutoMute();
+      if (!settings.blur) clearAutoBlur();
+      if (!settings.warn) removeWarningOverlay();
     }
 
     evaluateAutomation(getCurrentTime());

@@ -12,7 +12,11 @@ export type ExtensionSettings = {
   blur: boolean;
   blurMajor: boolean;
   blurMinor: boolean;
+  skip: boolean;
+  skipMajor: boolean;
+  skipMinor: boolean;
   timer: number;
+  movieOffsets: Record<string, number>;
 };
 
 export const DEFAULT_SETTINGS: ExtensionSettings = {
@@ -26,7 +30,11 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   blur: false,
   blurMajor: true,
   blurMinor: true,
-  timer: MIN_TIMER
+  skip: false,
+  skipMajor: true,
+  skipMinor: true,
+  timer: MIN_TIMER,
+  movieOffsets: {}
 };
 
 const SETTINGS_KEYS = Object.keys(DEFAULT_SETTINGS) as Array<
@@ -51,6 +59,21 @@ function normalizeEnabled(value: unknown): boolean {
   return typeof value === "boolean" ? value : DEFAULT_SETTINGS.enabled;
 }
 
+function normalizeMovieOffsets(value: unknown): Record<string, number> {
+  if (typeof value !== "object" || value === null) {
+    return DEFAULT_SETTINGS.movieOffsets;
+  }
+  
+  const result: Record<string, number> = {};
+  for (const [key, val] of Object.entries(value)) {
+    const num = Number(val);
+    if (Number.isFinite(num)) {
+      result[key] = Math.min(300, Math.max(-300, num));
+    }
+  }
+  return result;
+}
+
 function normalizeSettings(
   settings: Partial<ExtensionSettings> | null | undefined
 ): ExtensionSettings {
@@ -65,7 +88,11 @@ function normalizeSettings(
     blur: Boolean(settings?.blur),
     blurMajor: typeof settings?.blurMajor === "boolean" ? settings.blurMajor : DEFAULT_SETTINGS.blurMajor,
     blurMinor: typeof settings?.blurMinor === "boolean" ? settings.blurMinor : DEFAULT_SETTINGS.blurMinor,
-    timer: normalizeTimer(settings?.timer)
+    skip: Boolean(settings?.skip),
+    skipMajor: typeof settings?.skipMajor === "boolean" ? settings.skipMajor : DEFAULT_SETTINGS.skipMajor,
+    skipMinor: typeof settings?.skipMinor === "boolean" ? settings.skipMinor : DEFAULT_SETTINGS.skipMinor,
+    timer: normalizeTimer(settings?.timer),
+    movieOffsets: normalizeMovieOffsets(settings?.movieOffsets)
   };
 }
 
@@ -81,7 +108,11 @@ function readLocalFallback(): ExtensionSettings {
     blur: JSON.parse(localStorage.getItem("blur") ?? "false"),
     blurMajor: JSON.parse(localStorage.getItem("blurMajor") ?? "true"),
     blurMinor: JSON.parse(localStorage.getItem("blurMinor") ?? "true"),
-    timer: localStorage.getItem("timer")
+    skip: JSON.parse(localStorage.getItem("skip") ?? "false"),
+    skipMajor: JSON.parse(localStorage.getItem("skipMajor") ?? "true"),
+    skipMinor: JSON.parse(localStorage.getItem("skipMinor") ?? "true"),
+    timer: localStorage.getItem("timer"),
+    movieOffsets: JSON.parse(localStorage.getItem("movieOffsets") ?? "{}")
   });
 }
 
@@ -96,7 +127,11 @@ function writeLocalFallback(settings: ExtensionSettings): void {
   localStorage.setItem("blur", JSON.stringify(settings.blur));
   localStorage.setItem("blurMajor", JSON.stringify(settings.blurMajor));
   localStorage.setItem("blurMinor", JSON.stringify(settings.blurMinor));
+  localStorage.setItem("skip", JSON.stringify(settings.skip));
+  localStorage.setItem("skipMajor", JSON.stringify(settings.skipMajor));
+  localStorage.setItem("skipMinor", JSON.stringify(settings.skipMinor));
   localStorage.setItem("timer", settings.timer.toString());
+  localStorage.setItem("movieOffsets", JSON.stringify(settings.movieOffsets));
 }
 
 export function loadSettings(): Promise<ExtensionSettings> {

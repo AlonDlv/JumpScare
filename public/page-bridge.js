@@ -62,4 +62,21 @@
 
   publishPlayerTime();
   window.setInterval(publishPlayerTime, 500);
+
+  window.addEventListener("message", (event) => {
+    if (event.source !== window || !event.data || event.data.source !== MESSAGE_SOURCE) {
+      return;
+    }
+
+    if (event.data.action === "seekPlayer" && typeof event.data.targetTimeMs === "number") {
+      const player = getNetflixPlayer();
+      if (player && typeof player.seek === "function") {
+        try {
+          player.seek(event.data.targetTimeMs);
+        } catch (err) {
+          console.error("[JumpsCare] Error seeking player:", err);
+        }
+      }
+    }
+  });
 })();

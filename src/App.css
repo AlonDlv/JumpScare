@@ -13,7 +13,7 @@
 }
 
 :root {
-  --font-main: 'StayDrips', system-ui, -apple-system, sans-serif;
+  --font-main: 'Creepster', cursive;
   --font-scary: 'Creepster', cursive;
   --surface: rgba(255, 255, 255, 0.06);
   --surface-hover: rgba(255, 255, 255, 0.1);
@@ -67,6 +67,24 @@ body {
 }
 
 .spider-decoration:hover {
+  opacity: 1;
+  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.8));
+}
+
+.gear-icon {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  width: 32px;
+  height: auto;
+  opacity: 0.85;
+  transition: filter 0.3s ease, opacity 0.3s ease;
+  z-index: 10;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.gear-icon:hover {
   opacity: 1;
   filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.8));
 }
@@ -310,7 +328,7 @@ body {
 }
 
 .control-wrapper.is-expanded {
-  max-height: 140px;
+  max-height: 400px;
   background: var(--surface-hover);
 }
 
@@ -427,11 +445,23 @@ body {
   z-index: 100;
   display: flex;
   flex-direction: column;
-  padding: 24px;
   box-sizing: border-box;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  justify-content: center;
+  justify-content: flex-start;
+  padding: 16px 24px;
+  padding-top: 24px;
+  font-family: var(--font-scary);
+  letter-spacing: 2px;
+}
+
+.bug-report-overlay * {
+  font-family: var(--font-scary);
+  letter-spacing: 2px;
+}
+
+.bug-report-overlay label {
+  font-size: 1.4rem;
 }
 
 .bug-report-title {
@@ -471,6 +501,7 @@ body {
   display: flex;
   justify-content: space-between;
   gap: 16px;
+  margin-top: auto;
 }
 
 .bug-report-btn {
@@ -516,4 +547,12 @@ body {
 .bug-report-btn.send:hover {
   background: #ff3b3b;
   box-shadow: 0 0 15px var(--accent-glow);
+}
+
+.bug-report-timestamps-details[open] .timestamps-expand-icon {
+  transform: rotate(0deg) !important;
+}
+
+.bug-report-timestamps-details summary::-webkit-details-marker {
+  display: none;
 }
